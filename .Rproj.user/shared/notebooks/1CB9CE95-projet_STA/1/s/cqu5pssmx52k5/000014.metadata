@@ -1,0 +1,1 @@
+{"height":432.6328800988875,"width":700.0,"size_behavior":0,"conditions":[[0,"\u001B[38;5;232mDon't know how to automatically pick scale for object of type \u001B[34m<xts/zoo>\u001B[38;5;232m. Defaulting to continuous.\u001B[39m"],[1,"Avis : \u001B[38;5;232mRemoved 1 rows containing non-finite values (`stat_bin()`).\u001B[39m"]]}

@@ -1,0 +1,237 @@
+---
+title: "projet_STA"
+author: "BOUILLON Mathis"
+date: "2024-12-12"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Projet de Séries Temporelles Avancées 
+
+
+### Modèle ARDL : une définition formelle
+
+Le modèle ARDL (AutoRegressive Distributed Lag) est une spécification économétrique qui permet de modéliser la relation dynamique entre une variable dépendante \( y_t \) et un ensemble de variables explicatives \( x_{it} \). 
+
+La forme générale d’un modèle ARDL(p, q) peut s’écrire comme suit :
+
+\[
+y_t = \alpha + \sum_{i=1}^p \phi_i y_{t-i} + \sum_{j=0}^q \sum_{i=1}^k \beta_{ij} x_{i,t-j} + \varepsilon_t
+\]
+
+où :
+
+- \( y_t \) est la variable dépendante à l’instant \( t \),
+- \( x_{i,t-j} \) sont les variables explicatives (avec \( i = 1, ..., k \) et \( j = 0, ..., q \) pour capturer les décalages),
+- \( \alpha \) est la constante,
+- \( \phi_i \) sont les coefficients des termes autorégressifs,
+- \( \beta_{ij} \) sont les coefficients des termes à retards distribués,
+- \( \varepsilon_t \) est le terme d’erreur.
+
+Ce modèle est utilisé pour analyser les relations à court terme et à long terme entre les variables. En cas de cointégration entre \( y_t \) et \( x_{it} \), une transformation du modèle ARDL en un modèle de correction d’erreur (ECM) permet de quantifier les ajustements vers l’équilibre de long terme.
+
+p est l'ordre de l'AR, et q est le nombre de retards appliqué aux variables explicatives ou exogènes au modèle. 
+
+
+
+```{r, include = FALSE}
+if (!require("quantmod")) install.packages("quantmod")
+if (!require("tidyverse")) install.packages("tidyverse")
+if (!require("fBasics")) install.packages("fBasics")
+if (!require("tseries")) install.packages("tseries")
+if (!require("urca")) install.packages("urca")
+
+library(quantmod)
+library(tidyverse)
+library(fBasics)
+library(tseries)
+library(urca)
+```
+
+# Récupération des données du CAC 40 et visualisation : 
+
+```{r}
+# Télécharger les données du CAC 40
+cac40 <- getSymbols("^FCHI", src = "yahoo", from = "1990-01-01", to = "2023-12-31", auto.assign = FALSE)
+
+# Extraire uniquement les prix de clôture
+cac40_close <- na.omit(Cl(cac40))  # 'Cl()' extrait la colonne de clôture
+#nous pouvons également considérer d'autres indicateurs tq le max sur la journée, le min...
+colnames(cac40_close) <- "Close"
+
+#Visualisation de la série 
+
+autoplot(cac40_close) +
+  ggtitle("Indice CAC 40 pour la période 1990-2023") +
+  xlab("Date") +
+  ylab("Clôture") +
+  theme_minimal() + 
+  theme(plot.title = element_text(hjust = 0.5)) 
+ 
+
+```
+
+
+Nous pouvons déjà voir que la série présente une tendance linéaire claire. Il n'y a pas forcément de saisonnalité (plutôt des grosses chutes lors des crises globales)
+
+# Analyse préliminaire de la série de l'indice 
+
+## Valeurs manquantes 
+
+```{r}
+# Vérifier s'il y a des valeurs manquantes dans la série
+missing_values <- sum(is.na(cac40_close))
+
+# Afficher le nombre de valeurs manquantes
+print(paste("Nombre de valeurs manquantes :", missing_values))
+
+# Si des valeurs manquantes existent, afficher leurs dates
+if (missing_values > 0) {
+  missing_dates <- index(cac40_close)[is.na(cac40_close)]
+  print("Dates avec valeurs manquantes :")
+  print(missing_dates)
+} else {
+  print("Aucune valeur manquante dans la série.")
+}
+
+```
+La série ne présente pas de valeurs manquantes. 
+
+## Stat desc 
+
+```{r}
+basicStats(cac40_close)
+```
+
+## Observation de la tendance (linéaire)
+
+```{r}
+#graphiquement 
+
+# Ajouter une tendance linéaire
+autoplot(cac40_close) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  ggtitle("Tendance linéaire de l'indice CAC 40") +
+  xlab("Date") +
+  ylab("Clôture") +
+  theme_minimal()
+
+```
+
+```{r}
+#avec le R**2
+
+# Créer une variable temporelle
+time <- as.numeric(index(cac40_close))
+
+# Ajuster un modèle linéaire : Prix ~ Temps
+lm_model <- lm(coredata(cac40_close) ~ time)
+
+# Résumé du modèle
+summary(lm_model)
+
+```
+## détection de la saisonnalité 
+
+```{r}
+# Convertir la série en périodicité mensuelle
+cac40_monthly <- to.monthly(cac40_close, indexAt = "lastof", OHLC = FALSE)
+
+# Visualisation des moyennes mensuelles
+cac40_monthly_mean <- aggregate(cac40_monthly, as.yearmon, mean)
+
+autoplot(cac40_monthly_mean) +
+  ggtitle("Moyennes mensuelles de l'indice CAC 40") +
+  xlab("Date") +
+  ylab("Moyenne mensuelle de clôture") +
+  theme_minimal()
+
+
+```
+
+## détection des outliers 
+
+```{r}
+# Détection visuelle avec boxplot
+boxplot(coredata(cac40_close), main = "Détection des outliers",
+        ylab = "Prix de clôture", col = "lightblue")
+
+# Repérer les outliers par quantile
+q1 <- quantile(cac40_close, 0.25)
+q3 <- quantile(cac40_close, 0.75)
+iqr <- q3 - q1
+outliers <- cac40_close[cac40_close < (q1 - 1.5 * iqr) | cac40_close > (q3 + 1.5 * iqr)]
+
+print("Outliers détectés :")
+print(outliers)
+```
+
+Nous allons maintenant regarder les log returns de cette série (ce qui est équivalent à une première différenciation de la série) afin de voir si elle est stationnaire ou non 
+
+```{r}
+# Calcul des rendements logarithmiques
+log_returns <- diff(log(cac40_close))
+
+# Visualisation des rendements
+autoplot(log_returns) +
+  ggtitle("Rendements logarithmiques du CAC 40") +
+  xlab("Date") +
+  ylab("Log-returns") +
+  theme_minimal()
+
+# Statistiques descriptives des rendements
+basicStats(log_returns)
+
+# Histogramme des rendements
+ggplot(data = data.frame(log_returns = coredata(log_returns)), aes(x = log_returns)) +
+  geom_histogram(bins = 50, fill = "lightblue", color = "black") +
+  ggtitle("Distribution des rendements logarithmiques") +
+  xlab("Log-returns") +
+  ylab("Fréquence") +
+  theme_minimal()
+
+```
+
+On checke la stationnarité de la série avec un test de Dickey : 
+
+```{r}
+# Calcul des log-returns
+log_returns <- diff(log(cac40_close))
+
+# Test ADF sur les rendements logarithmiques
+adf_test <- adf.test(na.omit(log_returns))
+
+# Afficher les résultats du test
+print(adf_test)
+
+```
+La série des rendements est bien stationnaire. 
+Nous pouvons également le tester avec le test KPSS : 
+
+```{r}
+# Calcul des log-returns
+log_returns <- diff(log(cac40_close))
+
+# Test KPSS sur les rendements logarithmiques
+kpss_test <- ur.kpss(na.omit(log_returns))
+
+# Résumé des résultats
+summary(kpss_test)
+
+```
+
+Le test-statistic obtenu (0.0543) est bien inférieur à toutes les valeurs critiques obtenues à pour chaque seuil. Cela signifie que nous ne rejetons pas l'hypothèse nulle i.e. que les rendements logarithmiques du CAC 40 sont stationnaires autour d'une moyenne constante.
+
+
+# Analyse de la tendance et différenciation (pas les log returns, juste une différenciation)
+
+```{r}
+
+
+```
+

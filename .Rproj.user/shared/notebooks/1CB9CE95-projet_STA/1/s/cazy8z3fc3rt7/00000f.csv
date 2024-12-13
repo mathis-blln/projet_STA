@@ -1,0 +1,80 @@
+"0","if (!require(""quantmod"")) install.packages(""quantmod"")"
+"2","Le chargement a nécessité le package : quantmod
+"
+"2","Avis : le package ‘quantmod’ a été compilé avec la version R 4.3.2"
+"2","Le chargement a nécessité le package : xts
+"
+"2","Avis : le package ‘xts’ a été compilé avec la version R 4.3.2"
+"2","Le chargement a nécessité le package : zoo
+"
+"2","Avis : le package ‘zoo’ a été compilé avec la version R 4.3.2"
+"2","
+Attachement du package : ‘zoo’
+
+"
+"2","Les objets suivants sont masqués depuis ‘package:base’:
+
+    as.Date, as.Date.numeric
+
+"
+"2","Le chargement a nécessité le package : TTR
+"
+"2","Avis : le package ‘TTR’ a été compilé avec la version R 4.3.2"
+"2","Registered S3 method overwritten by 'quantmod':
+  method            from
+  as.zoo.data.frame zoo 
+"
+"0","if (!require(""tidyverse"")) install.packages(""tidyverse"")"
+"2","Le chargement a nécessité le package : tidyverse
+"
+"2","Avis : le package ‘tidyverse’ a été compilé avec la version R 4.3.2"
+"2","Avis : le package ‘ggplot2’ a été compilé avec la version R 4.3.2"
+"2","Avis : le package ‘dplyr’ a été compilé avec la version R 4.3.2"
+"2","Avis : le package ‘stringr’ a été compilé avec la version R 4.3.2"
+"2","Avis : le package ‘forcats’ a été compilé avec la version R 4.3.2"
+"2","── [1mAttaching core tidyverse packages[22m ───────────────────────────────────────────────────── tidyverse 2.0.0 ──
+[32m✔[39m [34mdplyr    [39m 1.1.4     [32m✔[39m [34mreadr    [39m 2.1.4
+[32m✔[39m [34mforcats  [39m 1.0.0     [32m✔[39m [34mstringr  [39m 1.5.1
+[32m✔[39m [34mggplot2  [39m 3.4.4     [32m✔[39m [34mtibble   [39m 3.2.1
+[32m✔[39m [34mlubridate[39m 1.9.3     [32m✔[39m [34mtidyr    [39m 1.3.0
+[32m✔[39m [34mpurrr    [39m 1.0.2     "
+"2","── [1mConflicts[22m ─────────────────────────────────────────────────────────────────────── tidyverse_conflicts() ──
+[31m✖[39m [34mdplyr[39m::[32mfilter()[39m masks [34mstats[39m::filter()
+[31m✖[39m [34mdplyr[39m::[32mfirst()[39m  masks [34mxts[39m::first()
+[31m✖[39m [34mdplyr[39m::[32mlag()[39m    masks [34mstats[39m::lag()
+[31m✖[39m [34mdplyr[39m::[32mlast()[39m   masks [34mxts[39m::last()
+[36mℹ[39m Use the ]8;;http://conflicted.r-lib.org/conflicted package]8;; to force all conflicts to become errors"
+"0","if (!require(""fBasics"")) install.packages(""fBasics"")"
+"2","Le chargement a nécessité le package : fBasics
+"
+"2","Avis : le package ‘fBasics’ a été compilé avec la version R 4.3.3"
+"2","
+Attachement du package : ‘fBasics’
+
+"
+"2","L'objet suivant est masqué depuis ‘package:TTR’:
+
+    volatility
+
+"
+"0","if (!require(""tseries"")) install.packages(""tseries"")"
+"2","Le chargement a nécessité le package : tseries
+"
+"2","Avis : le package ‘tseries’ a été compilé avec la version R 4.3.2"
+"2","
+    ‘tseries’ version: 0.10-54
+
+    ‘tseries’ is a package for time series analysis and computational finance.
+
+    See ‘library(help=""tseries"")’ for details.
+
+"
+"0","if (!require(""urca"")) install.packages(""urca"")"
+"2","Le chargement a nécessité le package : urca
+"
+"2","Avis : le package ‘urca’ a été compilé avec la version R 4.3.2"
+"0","library(quantmod)"
+"0","library(tidyverse)"
+"0","library(fBasics)"
+"0","library(tseries)"
+"0","library(urca)"

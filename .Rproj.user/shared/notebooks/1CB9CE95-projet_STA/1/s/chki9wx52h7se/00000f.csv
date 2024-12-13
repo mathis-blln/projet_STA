@@ -1,0 +1,3 @@
+"0","# Détection visuelle avec boxplot"
+"0","boxplot(coredata(cac40_close), main = ""Détection des outliers"","
+"0","        ylab = ""Prix de clôture"", col = ""lightblue"")"
