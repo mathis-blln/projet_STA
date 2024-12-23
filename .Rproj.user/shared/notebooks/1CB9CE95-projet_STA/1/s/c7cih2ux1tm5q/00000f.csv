@@ -1,6 +1,3 @@
-"0","# Calcul des log-returns"
-"0","log_returns <- diff(log(cac40_close))"
-"0",""
 "0","# Test KPSS sur les rendements logarithmiques"
 "0","kpss_test <- ur.kpss(na.omit(log_returns))"
 "0",""

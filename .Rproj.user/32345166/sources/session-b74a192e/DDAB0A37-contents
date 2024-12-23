@@ -235,3 +235,16 @@ Le test-statistic obtenu (0.0543) est bien inférieur à toutes les valeurs crit
 
 ```
 
+# ARIMA 
+
+```{r}
+
+
+```
+
+# ARDL 
+
+```{r}
+
+
+```

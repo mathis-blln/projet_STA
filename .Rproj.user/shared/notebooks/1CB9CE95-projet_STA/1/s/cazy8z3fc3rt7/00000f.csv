@@ -20,10 +20,6 @@ Attachement du package : ‘zoo’
 "2","Le chargement a nécessité le package : TTR
 "
 "2","Avis : le package ‘TTR’ a été compilé avec la version R 4.3.2"
-"2","Registered S3 method overwritten by 'quantmod':
-  method            from
-  as.zoo.data.frame zoo 
-"
 "0","if (!require(""tidyverse"")) install.packages(""tidyverse"")"
 "2","Le chargement a nécessité le package : tidyverse
 "
@@ -58,17 +54,6 @@ Attachement du package : ‘fBasics’
 
 "
 "0","if (!require(""tseries"")) install.packages(""tseries"")"
-"2","Le chargement a nécessité le package : tseries
-"
-"2","Avis : le package ‘tseries’ a été compilé avec la version R 4.3.2"
-"2","
-    ‘tseries’ version: 0.10-54
-
-    ‘tseries’ is a package for time series analysis and computational finance.
-
-    See ‘library(help=""tseries"")’ for details.
-
-"
 "0","if (!require(""urca"")) install.packages(""urca"")"
 "2","Le chargement a nécessité le package : urca
 "

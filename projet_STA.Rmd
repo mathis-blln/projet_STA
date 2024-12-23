@@ -200,9 +200,6 @@ ggplot(data = data.frame(log_returns = coredata(log_returns)), aes(x = log_retur
 On checke la stationnarité de la série avec un test de Dickey : 
 
 ```{r}
-# Calcul des log-returns
-log_returns <- diff(log(cac40_close))
-
 # Test ADF sur les rendements logarithmiques
 adf_test <- adf.test(na.omit(log_returns))
 
@@ -214,9 +211,6 @@ La série des rendements est bien stationnaire.
 Nous pouvons également le tester avec le test KPSS : 
 
 ```{r}
-# Calcul des log-returns
-log_returns <- diff(log(cac40_close))
-
 # Test KPSS sur les rendements logarithmiques
 kpss_test <- ur.kpss(na.omit(log_returns))
 
@@ -235,3 +229,155 @@ Le test-statistic obtenu (0.0543) est bien inférieur à toutes les valeurs crit
 
 ```
 
+# ARIMA 
+
+```{r}
+basicStats(log_returns)
+log_returns <- na.omit(log_returns)
+
+acf(log_returns$Close)
+pacf(log_returns$Close)
+```
+
+```{r}
+# Définir les paramètres pour les modèles ARMA
+p_values <- 1:6  # Valeurs de p
+q_values <- 1:2  # Valeurs de q
+
+# Stocker les modèles et leurs résultats
+models <- list()
+valid_models <- list()
+aic_values <- c()
+bic_values <- c()
+box_test_results <- list()
+
+# Ajustement des modèles ARMA et vérification de la blancheur des résidus
+for (p in p_values) {
+  for (q in q_values) {
+    model_name <- paste0("ARMA", p, q)
+    
+    # Ajuster le modèle ARMA(p, q)
+    models[[model_name]] <- arima(log_returns, order = c(p, 0, q))
+    
+    # Récupérer les résidus et effectuer le test de Ljung-Box
+    resid <- residuals(models[[model_name]])
+    box_test <- Box.test(resid, lag = 30, type = "Ljung-Box")
+    
+    # Stocker le résultat du test
+    box_test_results[[model_name]] <- box_test
+    
+    # Si les résidus sont blancs (p-value > 0.05), ajouter à la liste des modèles valides
+    if (box_test$p.value > 0.05) {
+      valid_models[[model_name]] <- models[[model_name]]
+      aic_values[model_name] <- AIC(models[[model_name]])
+      bic_values[model_name] <- BIC(models[[model_name]])
+    }
+  }
+}
+
+# Afficher les résultats des tests de blancheur
+cat("Résultats des tests de blancheur des résidus (p-value) :\n")
+for (model_name in names(box_test_results)) {
+  cat(model_name, ": p-value =", box_test_results[[model_name]]$p.value, "\n")
+}
+
+# Évaluer les modèles valides uniquement
+if (length(valid_models) > 0) {
+  cat("\nCritères AIC et BIC pour les modèles valides :\n")
+  aic_results <- data.frame(Model = names(aic_values), AIC = aic_values, BIC = bic_values)
+  print(aic_results[order(aic_results$AIC), ])  # Trier par AIC
+
+  # Identifier le meilleur modèle parmi les modèles valides
+  best_model <- names(which.min(aic_values))
+  cat("\nMeilleur modèle basé sur AIC parmi les modèles valides :", best_model, "\n")
+} else {
+  cat("\nAucun modèle n'a passé le test de blancheur des résidus.\n")
+}
+
+```
+```{r}
+# Charger les bibliothèques nécessaires
+library(forecast)
+library(ggplot2)
+library(dplyr)
+
+# Ajuster un modèle ARMA(5,2) sur la série log_returns
+arma_model <- Arima(log_returns$Close, order = c(5, 0, 2))  # Modèle ARMA(5,2)
+
+# Faire des prédictions in-sample (prédictions sur les points déjà observés)
+predictions <- fitted(arma_model)
+
+# Préparer les données pour ggplot (conversion de l'objet xts en dataframe)
+plot_data <- data.frame(
+  Time = index(log_returns),                # Extraire les dates depuis l'objet xts
+  Observed = as.vector(coredata(log_returns$Close)),  # Convertir en vecteur
+  Predicted = predictions                   # Ajouter les prédictions
+)
+
+# Ajouter une colonne pour les tranches de 5 ans
+plot_data <- plot_data %>%
+  mutate(Year = as.numeric(format(Time, "%Y")),  # Extraire l'année
+         Period = paste0(floor(Year / 5) * 5, "-", floor(Year / 5) * 5 + 4))  # Grouper par tranche de 5 ans
+
+# Découper les données en tranches de 5 ans
+periods <- unique(plot_data$Period)  # Identifier toutes les tranches de 5 ans
+
+# Boucle pour générer un graphique par tranche de 5 ans
+for (period in periods) {
+  # Filtrer les données pour la tranche actuelle
+  period_data <- filter(plot_data, Period == period)
+  
+  # Générer un graphique pour la tranche actuelle
+  p <- ggplot(period_data, aes(x = Time)) +
+    geom_line(aes(y = Observed), color = 'black', linewidth = 1) +  # Série observée en noir
+    geom_line(aes(y = Predicted), color = 'blue', linewidth = 1) +  # Prédictions en bleu
+    labs(title = paste("Comparaison des prédictions ARMA(5,2) - Période :", period),
+         x = "Date", y = "log_returns") +
+    theme_minimal()
+  
+  # Afficher le graphique
+  print(p)
+}
+
+
+
+
+```
+
+```{r}
+# Calculer les erreurs
+errors <- plot_data$Observed - plot_data$Predicted
+
+# Calculer le RMSE
+rmse <- sqrt(mean(errors^2))
+
+# Calculer le MAE
+mae <- mean(abs(errors))
+
+# Afficher les résultats
+cat("Performance du modèle ARMA(5,2):\n")
+cat("RMSE: ", rmse, "\n")
+cat("MAE: ", mae, "\n")
+
+#sur un sous échantillon : 
+
+# Exemple : sélectionner les données pour janvier 2015
+subsample_month <- filter(plot_data, Year == 2008 & format(Time, "%m") == "10")
+
+# Calculer les erreurs pour ce mois
+errors_month <- subsample_month$Observed - subsample_month$Predicted
+
+# Calculer le RMSE pour ce mois
+rmse_month <- sqrt(mean(errors_month^2))
+
+# Calculer le MAE pour ce mois
+mae_month <- mean(abs(errors_month))
+
+# Afficher les résultats pour le mois spécifié
+cat("Performance du modèle ARMA(5,2) pour un mois précis:\n")
+cat("RMSE: ", rmse_month, "\n")
+cat("MAE: ", mae_month, "\n")
+
+
+# ==> comme les prédictions en gros toujours nulles et qu'on fait une moyenne sur beaucoup d'échantillons, les irrégularités sont vite effacées et on obtient un MAE très faible (attention à l'échelle)
+```
