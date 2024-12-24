@@ -377,7 +377,18 @@ mae_month <- mean(abs(errors_month))
 cat("Performance du modèle ARMA(5,2) pour un mois précis:\n")
 cat("RMSE: ", rmse_month, "\n")
 cat("MAE: ", mae_month, "\n")
+```
 
+==> comme les prédictions sont toujours nulles et qu'on fait une moyenne sur beaucoup d'échantillons, les irrégularités sont vite effacées et on obtient un MAE très faible (attention à l'échelle, car ce sont des log returns). Par ailleurs, si on observe sur un mois précis (crise de 2008 par exemple), on observe que les métriques de performance changent grandement. 
+Par ailleurs, les prédictions sont toujours retardées (c'est induit par le modèle que l'on choisit), et d'intensité faible. 
 
-# ==> comme les prédictions en gros toujours nulles et qu'on fait une moyenne sur beaucoup d'échantillons, les irrégularités sont vite effacées et on obtient un MAE très faible (attention à l'échelle)
+ 
+ 
+```{r}
+#ARIMA sur les prix de clôture 
+
+ 
+ 
+ 
+```
 ```
