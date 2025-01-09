@@ -61,10 +61,10 @@ def download_data(op, start_date, end_date):
 @st.cache_resource
 def download_eco_data(start_date, end_date):
 
-    eco_indicators_for_train = pd.read_csv('data/eco_data_daily_clean.csv')
+    eco_indicators_for_train = pd.read_csv('data/input/eco_data_daily_clean.csv')
     eco_indicators_for_train =eco_indicators_for_train.drop(columns=["CAC40"])
 
-    eco_indicators_for_predict = pd.read_csv('data/eco_data_after_2024-10-30.csv')
+    eco_indicators_for_predict = pd.read_csv('data/input/eco_data_after_2024-10-30.csv')
     eco_indicators_for_predict =eco_indicators_for_predict.drop(columns=["CAC40"])
     eco_data= pd.concat([eco_indicators_for_train, eco_indicators_for_predict])
 
@@ -77,18 +77,19 @@ def download_eco_data(start_date, end_date):
 @st.cache_resource
 def add_indicators(df):
     df["Return"] = np.log(df["Close"] / df["Close"].shift(1))
-    df["MACD"] = MACD(df["Close"].squeeze(), window_slow=26, window_fast=12, window_sign=9).macd()
-    df["RSI"] = RSIIndicator(df["Close"].squeeze(), window=10).rsi()
-    df["SMA_5"] = SMAIndicator(df["Close"].squeeze(), window=5).sma_indicator()
-    df["SMA_10"] = SMAIndicator(df["Close"].squeeze(), window=10).sma_indicator()
-    df["SMA_20"] = SMAIndicator(df["Close"].squeeze(), window=20).sma_indicator()
-    df["WMA_5"] = WMAIndicator(df["Close"].squeeze(), window=5).wma()
-    df["WMA_10"] = WMAIndicator(df["Close"].squeeze(), window=10).wma()
-    df["WMA_20"] = WMAIndicator(df["Close"].squeeze(), window=20).wma()
-    df["Close_minus_Open"] = df["Close"] - df["Open"]
-    df["High_minus_Low"] = df["High"] - df["Low"]
-    df["CCI"] = calculate_cci(df)
-    df["Momentum"] = df["Close"].diff(periods=10)
+    # Calculating and shifting technical indicators
+    df["MACD"] = MACD(df["Close"].squeeze(), window_slow=26, window_fast=12, window_sign=9).macd().shift(1)
+    df["RSI"] = RSIIndicator(df["Close"].squeeze(), window=10).rsi().shift(1)
+    df["SMA_5"] = SMAIndicator(df["Close"].squeeze(), window=5).sma_indicator().shift(1)
+    df["SMA_10"] = SMAIndicator(df["Close"].squeeze(), window=10).sma_indicator().shift(1)
+    df["SMA_20"] = SMAIndicator(df["Close"].squeeze(), window=20).sma_indicator().shift(1)
+    df["WMA_5"] = WMAIndicator(df["Close"].squeeze(), window=5).wma().shift(1)
+    df["WMA_10"] = WMAIndicator(df["Close"].squeeze(), window=10).wma().shift(1)
+    df["WMA_20"] = WMAIndicator(df["Close"].squeeze(), window=20).wma().shift(1)
+    df["Close_minus_Open"] = (df["Close"] - df["Open"]).shift(1)
+    df["High_minus_Low"] = (df["High"] - df["Low"]).shift(1)
+    df["CCI"] = calculate_cci(df).shift(1)
+    df["Momentum"] = df["Close"].diff(periods=10).shift(1)
     return df
 
 
@@ -184,12 +185,12 @@ def dataframe(option=option):
     st.header('Recent Data')
     st.write("Data from download_data:")
     st.markdown(", ".join(data.columns))
-    st.dataframe(data, hide_index=False)
+    st.dataframe(data, hide_index=True)
 
-    st.write('Economical data:')
+    st.header('Economical data:')
     st.text('Starting from 2024-10-30, we use predictions from OECD')
     st.markdown(", ".join(eco_data.columns))
-    st.dataframe(eco_data, hide_index=False)
+    st.dataframe(eco_data, hide_index=True)
 
 
 def run_model(engine, X_train, y_train, X_test, y_test, feature_cols, lag=60):

@@ -1,6 +1,12 @@
 ############# GARCH MODEL
 
-# Transform Date to Date format
+# Load libraries
+library(rugarch)
+library(dplyr)
+library(tseries)
+
+# Load data
+data <- read.csv("data/output/final_database.csv")
 data$Date <- as.Date(data$Date, format = "%Y-%m-%d")
 
 ########## GARCH MODEL
@@ -12,7 +18,6 @@ acf(data$Return)
 
 # Autocorrelation of the squared return
 acf(data$Return**2)
-
 ## The process looks like white noise but with no independance. Hence, we can use a GARCH model.
 
 ## Estimation of order of GARCH model
@@ -22,7 +27,7 @@ acf(data$Return**2 - mean(data$Return**2))
 # [0] On Estimation of GARCH Models with an Application to Nordea Stock Prices
 # Motivated by comments in [1] that in practical applications
 # GARCH with smaller orders often sufficiently describe the data and in most
-#cases GARCH (1, 1) is sufficient, we hence consider four different combinations
+# cases GARCH (1, 1) is sufficient, we hence consider four different combinations
 # of p = 0, 1 and q = 1, 2 for each period.
 
 #^[1] Statistics of Financial Markets: An Introduction, Professor Dr. Jürgen Franke
@@ -46,7 +51,7 @@ find_garch <- function(p_min,p_max,q_min,q_max, data, dist="norm"){
                                 mean.model = list(armaOrder = c(0, 0)),
                                 distribution.model =dist)
       out <-  ugarchfit(spec =garch_spec, data = data)
-      current_aic <- infocriteria(out)[1]
+      current_aic <- infocriteria(out)[1]*length(data)
       
       if (current_aic < best_aic) {
         best_aic <- current_aic
@@ -60,7 +65,7 @@ find_garch <- function(p_min,p_max,q_min,q_max, data, dist="norm"){
     }
   }
   
-  results$relative_gap <- (results$aic - best_aic) / best_aic 
+  results$relative_gap <- (results$aic - best_aic)*100 / best_aic 
   return(results)
 }
 
@@ -69,7 +74,10 @@ p_min <- 0
 p_max <- 1
 q_min <- 1
 q_max <- 2
-find_garch(p_min, p_max, q_min, q_max, data_train$Return**2,dist="sstd")
+results<- find_garch(p_min, p_max, q_min, q_max, data_train$Return**2,dist="norm")
+
+# latex table
+print(xtable::xtable(results, type = "latex"))
 # => Best model is GARCH(1,1)
 
 ########### Fit the GARCH(1,1) model
@@ -105,7 +113,7 @@ forecast_garch <- function(garch_fit, data, n_test, n_ahead = 1) {
 performance <- function(predicted, realized){
   N <- length(realized)
   # Root Mean Squared Error (RMSE)
-  rmse <- sqrt(sum((predicted - realized)**2) / N)
+  rmse <- sum((predicted - realized)**2) / N
   # Mean Absolute Error (MAE)
   mae <- (1 / N) * sum(abs(predicted - realized))
   # Heteroscedasticity-adjusted MAE (HMAE)
@@ -144,6 +152,9 @@ run_garch <- function(data,n_test, distribution = "norm",model ="sGARCH",submode
 n_test <- nrow(data_test)
 res_norm<- run_garch(data$Return, n_test, distribution = "norm",model ="sGARCH", submodel=NULL, garch_order = c(1, 1), arma_order = c(0, 0))
 
+res_norm$fit
+
+#### Regarder le paramètre de forme pour indication sur les lois à tester
 # Jacques bera test for normality
 jarque.bera.test(res_norm$fit@fit$residuals)
 # reject the null hypothesis of normality for the distribution of the
@@ -185,10 +196,6 @@ res_sged<- run_garch(data$Return, n_test, distribution = "sged",model ="sGARCH",
 res_sged$performance_test
 
 
-
-# Combine results into a single dataframe
-library(dplyr)
-
 # Example: list of performance metrics
 performance_results <- list(
   res_norm$performance_test,
@@ -205,10 +212,20 @@ performance_df <- bind_rows(performance_results, .id = "Model") %>%
 # View the structured dataframe
 print(performance_df)
 
+# latex
+print(xtable::xtable(performance_df, type = "latex", digits = rep(4, ncol(performance_df) + 1)))
 # summary of the model
 res_sstd$fit
+
+confint(res_sstd$fit)
 # => No serial correlation in the residuals but on squared residuals (Use of Ljung-Box test)
 
+
+## Lljung test till 11 lag
+for (i in 1:11) {
+  print(Box.test(res_sstd$fit@fit$residuals, lag = i, type = "Ljung-Box")$p.value)
+}
+test<- res_sstd$fit
 
 
 #### Plot results of best model
@@ -216,11 +233,12 @@ res_sstd$forecast$date <- data_test$Date
 res_sstd$fitted$date <- data_train$Date
 
 
-plot(data_train$Date, data_train$Return, type = "l", col = "black", xlab = "Date", ylab = "Return", main = "GARCH(1,1) Fitted")
+plot(data_train$Date, data_train$Return, type = "l", col = "black", xlab = "Date", ylab = "Return")
 lines(res_sstd$fitted$date, res_sstd$fitted$sigma, col = "red")
-
-plot(data_test$Date, data_test$Return, type = "l", col = "black", xlab = "Date", ylab = "Return", main = "GARCH(1,1) Forecast")
+lines(data_test$Date, data_test$Return, type = "l", col = "blue", xlab = "Date", ylab = "Return", main = "GARCH(1,1) Forecast")
 lines(res_sstd$forecast$date, res_sstd$forecast$sigma, type = "l", col = "red", xlab = "Date", ylab = "Volatility", main = "GARCH(1,1) Forecast")
+legend("bottomleft", legend = c("Train","Test", "Volatility predicted"), col = c("black","blue", "red"), lty = 1:1, cex = 0.8)
+
 
 plot(data_test$Date, res_sstd$vol_proxy_test, type = "l", col = "black", xlab = "Date", ylab = "Return", main = "Realized vs. Forecast")
 lines(res_sstd$forecast$date, res_sstd$forecast$sigma, type = "l", col = "red", xlab = "Date", ylab = "Volatility", main = "GARCH(1,1) Forecast")
@@ -266,3 +284,5 @@ performance_df <- bind_rows(performance_results, .id = "Model") %>%
 
 performance_df
 
+# latex
+print(xtable::xtable(performance_df, type = "latex", digits = rep(4, ncol(performance_df) + 1)))

@@ -1,9 +1,11 @@
+##### FARIMA-MODEL
 library(arfima)
 
-# Estimation d'un modèle FARIMA-GARCH 
+# Chargement des données
+data <- read.csv("data/output/final_database.csv")
+data$Date <- as.Date(data$Date, format = "%Y-%m-%d")
 
-data <- read.csv("final_database.csv")
-summary(data)
+
 # Keep only Return
 Return <- data$Return
 data$Date <- as.Date(data$Date)
@@ -11,12 +13,10 @@ data$Date <- as.Date(data$Date)
 
 ## Étape 2 : Analyse graphique
 plot(data$Date,Return, main = "Rendements Logarithmiques du CAC 40", ylab = "Rendements", col = "blue", type = "l")
-
 acf(Return, main = "ACF des rendements", lag.max = 150, ylim = c(0, 0.5))
 
 plot(data$Date,Return**2, main = "Rendements Logarithmiques du CAC 40", ylab = "Rendements", col = "blue", type = "l")
 acf(Return**2, main = "ACF des rendements au carré", lag.max = 150, ylim = c(0, 0.5))
-
 
 pacf(Return, main = "PACF des rendements")
 
@@ -32,33 +32,30 @@ arfima(Return)
 # L'autocorrélogramme du carré des rendements semble indiquer la persistence des corrélations. Cela motive l'estimation d'un modèle FARIMA.
 # L'orde maximal ar est 5 et l'ordre maximal ma est 2.
 
-
 # Étape 3 : Grid search pour le modèle FARIMA avec arfima
 grid_search_farima <- function(data, max_p = 5, max_q = 2) {
   results <- list()  # Liste pour stocker les modèles
   
   for (p in 0:max_p) {
     for (q in 0:max_q) {
-      tryCatch({
-        # Ajustement du modèle FARIMA
-        model <- arfima::arfima(data, order = c(p, 0, q))
-        
-        # Extraction du AIC
-        aic <- AIC(model)
-        
-        # Vérification de la blancheur des résidus
-        residuals <- residuals(model)$Mode1
-        lb_pval <- Box.test(residuals, lag = 20, type = "Ljung-Box")$p.value
-        
-        # Stockage des résultats
-        results <- append(results, list(data.frame(
-          p = p,
-          q = q,
-          d = model$modes[[1]]$dfrac,
-          aic = aic,
-          LBox_pval = lb_pval
-        )))
-      }, error = function(e) { cat("Error with model p =", p, "q =", q, "\n") })
+      # Ajustement du modèle FARIMA
+      model <- arfima::arfima(data, order = c(p, 0, q))
+      
+      # Extraction du AIC
+      aic <- AIC(model)
+      
+      # Vérification de la blancheur des résidus
+      residuals <- residuals(model)$Mode1
+      lb_pval <- Box.test(residuals, lag = 20, type = "Ljung-Box")$p.value
+      
+      # Stockage des résultats
+      results <- append(results, list(data.frame(
+        p = p,
+        q = q,
+        d = model$modes[[1]]$dfrac,
+        aic = aic,
+        LBox_pval = lb_pval
+      )))
     }
   }
   
@@ -70,7 +67,6 @@ grid_search_farima <- function(data, max_p = 5, max_q = 2) {
   
   Return(results_df)
 }
-
 
 # Recherche des modèles
 farima_results <- grid_search_farima(as.numeric(Return))
