@@ -1,5 +1,5 @@
 "0","# Télécharger les données du CAC 40"
-"0","cac40 <- getSymbols(""^FCHI"", src = ""yahoo"", from = ""1990-01-01"", to = ""2023-12-31"", auto.assign = FALSE)"
+"0","cac40 <- getSymbols(""^FCHI"", src = ""yahoo"", from = ""1990-01-01"", to = ""2024-10-31"", auto.assign = FALSE)"
 "2","Avis : ^FCHI contains missing values. Some functions will not work if objects contain missing values in the middle of the series. Consider using na.omit(), na.approx(), na.fill(), etc to remove or replace them."
 "0","# Extraire uniquement les prix de clôture"
 "0","cac40_close <- na.omit(Cl(cac40))  # 'Cl()' extrait la colonne de clôture"
