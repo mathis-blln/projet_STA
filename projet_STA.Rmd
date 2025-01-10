@@ -1516,3 +1516,199 @@ summary(uecm_new)
 recm_new <- recm(uecm_new, case = 2)
 summary(recm_new)
 ```
+
+
+Here we have the short-run and the long-run multipliers (with standard errors, t-statistics and p-values).
+
+```{r}
+multipliers(ardl_new, type = "sr")
+multipliers(ardl_new)
+mult15 <- multipliers(ardl_new, type = 15, se = TRUE)
+plot_delay(mult15, interval = 0.95)
+
+```
+
+
+```{r}
+ardl_new_lm <- to_lm(ardl_new)
+
+# Forecast using the in-sample data
+insample_data <- ardl_new$model
+predicted_values <- predict(ardl_new_lm, newdata = insample_data)
+
+used_rows <- rownames(insample_data)
+
+# Créer une nouvelle colonne pour les prédictions (initialisée à NA)
+new_dataframe_train$Predicted <- NA
+
+# Insérer les prédictions aux lignes correspondantes
+new_dataframe_train$Predicted[as.numeric(used_rows)] <- predicted_values
+
+
+```
+
+```{r}
+# Ajouter une colonne pour grouper par tranches de 5 ans
+library(dplyr)
+library(ggplot2)
+
+# Ajouter les périodes de 5 ans
+plot_data_train <- new_dataframe_train %>%
+  mutate(
+    Year = as.numeric(format(Date, "%Y")),  # Extraire l'année
+    Period = paste0(floor(Year / 5) * 5, "-", floor(Year / 5) * 5 + 4)  # Grouper par tranches de 5 ans
+  )
+
+# Identifier toutes les tranches de 5 ans
+periods <- unique(plot_data_train$Period)
+
+# Générer un graphique pour chaque tranche de 5 ans
+for (period in periods) {
+  # Filtrer les données pour la tranche actuelle
+  period_data <- filter(plot_data_train, Period == period)
+  
+  # Créer le graphique
+  p <- ggplot(period_data, aes(x = Date)) +
+    geom_line(aes(y = Return), color = 'black', linewidth = 1) +     # Série observée en noir
+    geom_line(aes(y = Predicted), color = 'blue', linewidth = 1) +  # Prédictions en bleu
+    labs(
+      title = paste("Comparaison des prédictions ARDL - Période :", period),
+      x = "Date", 
+      y = "Retour"
+    ) +
+    theme_minimal() +
+    theme(legend.position = "none")
+  
+  # Afficher le graphique
+  print(p)
+}
+
+# Charger les bibliothèques nécessaires
+library(dplyr)
+
+# Calcul des erreurs globales (ensemble train)
+errors_train <- plot_data_train$Return - plot_data_train$Predicted
+rmse_train <- sqrt(mean(errors_train^2, na.rm = TRUE))  # RMSE
+mae_train <- mean(abs(errors_train), na.rm = TRUE)      # MAE
+
+cat("Performance globale sur l'ensemble train:\n")
+cat("RMSE: ", rmse_train, "\n")
+cat("MAE: ", mae_train, "\n")
+
+# Sous-échantillon : octobre 2008
+subsample_month_train <- plot_data_train %>%
+  filter(Year == 2008 & format(Date, "%m") == "10")
+
+# Calcul des erreurs pour octobre 2008
+errors_month_train <- subsample_month_train$Return - subsample_month_train$Predicted
+rmse_month_train <- sqrt(mean(errors_month_train^2, na.rm = TRUE))  # RMSE pour octobre 2008
+mae_month_train <- mean(abs(errors_month_train), na.rm = TRUE)      # MAE pour octobre 2008
+
+cat("Performance pour octobre 2008:\n")
+cat("RMSE: ", rmse_month_train, "\n")
+cat("MAE: ", mae_month_train, "\n")
+
+```
+
+```{r}
+new_dataframe_test <- new_dataframe[new_dataframe$Date >= "2023-01-01", ]
+new_dataframe_test <- new_dataframe_test %>%
+  mutate(
+    L1_Return = lag(Return, 1, default = tail(new_dataframe_train$Return, 1)),
+    L2_Return = lag(Return, 2, default = tail(new_dataframe_train$Return, 2)[1]),
+    L3_Return = lag(Return, 3, default = tail(new_dataframe_train$Return, 3)[1]),
+    L1_CPIH_YTYPCT = lag(CPIH_YTYPCT, 1, default = tail(new_dataframe_train$CPIH_YTYPCT, 1)),
+    L2_CPIH_YTYPCT = lag(CPIH_YTYPCT, 2, default = tail(new_dataframe_train$CPIH_YTYPCT, 2)[1]),
+    L3_CPIH_YTYPCT = lag(CPIH_YTYPCT, 3, default = tail(new_dataframe_train$CPIH_YTYPCT, 3)[1]),
+    L1_RSI = lag(RSI, 1, default = tail(new_dataframe_train$RSI, 1)),
+    L2_RSI = lag(RSI, 2, default = tail(new_dataframe_train$RSI, 2)[1])
+  )
+
+new_dataframe_test <- new_dataframe_test %>%
+  rename(
+    `L(Return, 1)` = L1_Return,
+    `L(Return, 2)` = L2_Return,
+    `L(Return, 3)` = L3_Return,
+    `L(CPIH_YTYPCT, 1)` = L1_CPIH_YTYPCT,
+    `L(CPIH_YTYPCT, 2)` = L2_CPIH_YTYPCT,
+    `L(CPIH_YTYPCT, 3)` = L3_CPIH_YTYPCT,
+    `L(RSI, 1)` = L1_RSI,
+    `L(RSI, 2)` = L2_RSI
+  )
+
+
+# Effectuer les prédictions avec le modèle ARDL converti en modèle linéaire
+predictions_test <- predict(ardl_new_lm, newdata = new_dataframe_test)
+
+# Ajouter les prédictions dans le dataframe de test
+new_dataframe_test$Predicted <- predictions_test
+
+
+# Calcul des erreurs (observé - prédit)
+errors_test <- new_dataframe_test$Return - new_dataframe_test$Predicted
+
+# Calcul du RMSE et du MAE
+rmse_test <- sqrt(mean(errors_test^2))
+mae_test <- mean(abs(errors_test))
+
+cat("Performance sur l'ensemble de test:\n")
+cat("RMSE: ", rmse_test, "\n")
+cat("MAE: ", mae_test, "\n")
+
+library(ggplot2)
+
+# Graphique des prédictions vs valeurs observées
+ggplot(new_dataframe_test, aes(x = Date)) +
+  geom_line(aes(y = Return), color = 'black', linewidth = 1, linetype = "solid") +  # Observé
+  geom_line(aes(y = Predicted), color = 'blue', linewidth = 1, linetype = "dashed") +  # Prédictions
+  labs(
+    title = "Prédictions ARDL sur l'ensemble de test",
+    x = "Date",
+    y = "Return"
+  ) +
+  theme_minimal()
+
+
+```
+
+
+```{r}
+# Dernier prix de clôture connu (celui de la fin de l'ensemble train)
+last_train_price <- 6473.76
+
+# Calcul des prix observés et prédits
+new_dataframe_test <- new_dataframe_test %>%
+  mutate(
+    Observed_Price = last_train_price * cumprod(exp(Return)),  # Prix observés
+    Predicted_Price = last_train_price * cumprod(exp(Predicted))  # Prix prédits
+  )
+
+# Vérifiez les premières lignes pour vous assurer de la cohérence
+head(new_dataframe_test[, c("Date", "Observed_Price", "Predicted_Price")])
+
+# Graphique des prix
+ggplot(new_dataframe_test, aes(x = Date)) +
+  geom_line(aes(y = Observed_Price), color = 'black', linewidth = 1, linetype = "solid") +  # Prix observés
+  geom_line(aes(y = Predicted_Price), color = 'blue', linewidth = 1, linetype = "dashed") +  # Prix prédits
+  labs(
+    title = "Prix de clôture observés vs prédits",
+    x = "Date",
+    y = "Prix de clôture"
+  ) +
+  theme_minimal()
+
+# Calcul des erreurs entre les prix observés et prédits
+errors_prices <- new_dataframe_test$Observed_Price - new_dataframe_test$Predicted_Price
+
+# Calcul du RMSE et du MAE sur les prix
+rmse_prices <- sqrt(mean(errors_prices^2, na.rm = TRUE))  # RMSE
+mae_prices <- mean(abs(errors_prices), na.rm = TRUE)      # MAE
+
+# Affichage des résultats
+cat("Performance sur les prix de clôture :\n")
+cat("RMSE (Prix): ", rmse_prices, "\n")
+cat("MAE (Prix): ", mae_prices, "\n")
+
+
+
+```
