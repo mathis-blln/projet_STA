@@ -341,14 +341,14 @@ final_database[numeric_columns] <- lapply(final_database[numeric_columns], as.nu
 
 ```{r}
 # Check for missing values
-missing_values <- sum(is.na(final_database$Adj.Close))
+missing_values <- sum(is.na(final_database$Close))
 
 # Display the number of missing values
 print(paste("Number of missing values:", missing_values))
 
 # If missing values exist, display their dates
 if (missing_values > 0) {
-  missing_dates <- final_database$Date[is.na(final_database$Adj.Close)]
+  missing_dates <- final_database$Date[is.na(final_database$Close)]
   print("Dates with missing values:")
   print(missing_dates)
 } else {
@@ -356,10 +356,10 @@ if (missing_values > 0) {
 }
 
 # Descriptive statistics
-basicStats(final_database$Adj.Close)
+basicStats(final_database$Close)
 
 # Add a linear trend
-ggplot(final_database, aes(x = Date, y = Adj.Close)) +
+ggplot(final_database, aes(x = Date, y = Close)) +
   geom_line(color = "black") + 
   geom_smooth(method = "lm", se = FALSE, color = "red") + 
   ggtitle("Linear Trend of the Index") +
@@ -369,13 +369,13 @@ ggplot(final_database, aes(x = Date, y = Adj.Close)) +
 
 # Fit a linear model: Price ~ Time
 time <- as.numeric(final_database$Date) # Convert dates to numeric values
-lm_model <- lm(final_database$Adj.Close ~ time)
+lm_model <- lm(final_database$Close ~ time)
 
 # Model summary
 summary(lm_model)
 
 # Convert the series to monthly frequency
-final_xts <- xts(final_database$Adj.Close, order.by = final_database$Date)
+final_xts <- xts(final_database$Close, order.by = final_database$Date)
 final_monthly <- to.monthly(final_xts, indexAt = "lastof", OHLC = FALSE)
 
 # Visualize monthly averages
@@ -398,16 +398,13 @@ Séparation des données en train/test
 train_data <- final_database %>% filter(Date < "2023-01-01")
 test_data <- final_database %>% filter(Date >= "2023-01-01")
 
-# Calculer les log-returns pour l'ensemble train
-log_returns_train <- diff(log(train_data$Adj.Close))
-log_returns_train <- na.omit(log_returns_train)
 ```
 
 ```{r}
-acf(train_data$Adj.Close)
-pacf(train_data$Adj.Close)
-acf(log_returns_train)
-pacf(log_returns_train)
+acf(train_data$Close)
+pacf(train_data$Close)
+acf(train_data$Return)
+pacf(train_data$Return)
 ```
 #sur les prix de clôture 
 
@@ -428,8 +425,8 @@ for (p in p_values) {
   for (q in q_values) {
     model_name <- paste0("ARIMA", p, q)
     
-    # Ajuster le modèle ARMA(p, q) sur les log_returns_train
-    models[[model_name]] <- arima(train_data$Adj.Close, order = c(p, 1, q))
+    # Ajuster le modèle ARMA(p, q) sur les train_data$Return
+    models[[model_name]] <- arima(train_data$Close, order = c(p, 1, q))
     
     # Récupérer les résidus et effectuer le test de Ljung-Box
     resid <- residuals(models[[model_name]])
@@ -474,18 +471,18 @@ library(ggplot2)
 library(dplyr)
 
 # Ajuster le modèle ARIMA(5,1,4) sur l'ensemble d'entraînement
-best_arma_model <- arima(train_data$Adj.Close, order = c(5, 1, 4))
+best_arma_model <- arima(train_data$Close, order = c(5, 1, 4))
 
 # Résumé du modèle ARIMA
 summary(best_arma_model)
 
 # Faire des prédictions pour l'ensemble d'entraînement (valeurs ajustées)
-fitted_train <- train_data$Adj.Close - residuals(best_arma_model)
+fitted_train <- train_data$Close - residuals(best_arma_model)
 
 # Créer un data frame pour les vraies valeurs et les prédictions in-sample
 plot_data_train <- data.frame(
   Time = train_data$Date,
-  Observed = train_data$Adj.Close,
+  Observed = train_data$Close,
   Predicted = fitted_train
 )
 
@@ -530,12 +527,12 @@ for (period in periods) {
 
 
 # Faire des prédictions sur l'ensemble de test (n.ahead = longueur de test_data)
-predictions_test <- predict(best_arma_model, n.ahead = length(test_data$Adj.Close))$pred
+predictions_test <- predict(best_arma_model, n.ahead = length(test_data$Close))$pred
 
 # Créer un data frame pour les valeurs observées et les prédictions de test
 plot_data_test <- data.frame(
   Time = test_data$Date,
-  Observed = test_data$Adj.Close,
+  Observed = test_data$Close,
   Predicted = predictions_test
 )
 
@@ -560,11 +557,18 @@ cat("RMSE : ", rmse_test, "\n")
 cat("MAE : ", mae_test, "\n")
 
 ```
+
+
+
+
+
 ```{r}
-exog <- train_data %>%
-  select(Momentum, Stochastic_K, CCI)
-arimax_model <- arima(train_data$Adj.Close, order = c(4, 1, 5), xreg = exog)
-fitted_arimax <- train_data$Adj.Close - residuals(arimax_model)
+library(dplyr)
+library(tidyr)
+exog <- dplyr::select(train_data, Momentum, Stochastic_K, CCI)
+
+arimax_model <- arima(train_data$Close, order = c(4, 1, 5), xreg = exog)
+fitted_arimax <- train_data$Close - residuals(arimax_model)
 
 rmse_arimax <- sqrt(mean(residuals(arimax_model)^2, na.rm = TRUE))
 mae_arimax <- mean(abs(residuals(arimax_model)), na.rm = TRUE)
@@ -575,7 +579,7 @@ cat("MAE :", mae_arimax, "\n")
 # 6. Visualiser les prédictions in-sample
 plot_data <- data.frame(
   Time = train_data$Date,  
-  Observed = train_data$Adj.Close, 
+  Observed = train_data$Close, 
   ARIMAX = fitted_arimax
 )
 
@@ -583,7 +587,7 @@ ggplot(plot_data, aes(x = Time)) +
   geom_line(aes(y = Observed, color = "Observed")) +
   geom_line(aes(y = ARIMAX, color = "ARIMAX"), linetype = "dashed") +
   labs(title = "Modèle ARIMAX",
-       x = "Date", y = "Adj.Close") +
+       x = "Date", y = "Close") +
   scale_color_manual(values = c("Observed" = "black", "ARIMAX" = "red")) +
   theme_minimal()
 
@@ -593,8 +597,8 @@ ggplot(plot_data, aes(x = Time)) +
 
 ```{r}
 # Préparer les données exogènes pour l'ensemble de test
-exog_test <- test_data %>%
-  select(Momentum, Stochastic_K, CCI)
+
+exog_test <- dplyr::select(test_data, Momentum, Stochastic_K, CCI)
 
 # Faire des prédictions sur l'ensemble test
 predictions_test <- predict(arimax_model, n.ahead = nrow(test_data), newxreg = exog_test)
@@ -605,7 +609,7 @@ predicted_test <- predictions_test$pred
 # Créer un data frame avec les vraies valeurs et les prédictions
 plot_data_test <- data.frame(
   Time = test_data$Date,
-  Observed = test_data$Adj.Close,
+  Observed = test_data$Close,
   Predicted = predicted_test
 )
 
@@ -624,7 +628,7 @@ ggplot(plot_data_test, aes(x = Time)) +
   geom_line(aes(y = Observed, color = "Observed")) +
   geom_line(aes(y = Predicted, color = "Predicted"), linetype = "dashed") +
   labs(title = "Prédictions ARIMAX vs Observations - Ensemble Test",
-       x = "Date", y = "Adj.Close") +
+       x = "Date", y = "Close") +
   scale_color_manual(values = c("Observed" = "black", "Predicted" = "red")) +
   theme_minimal()
 
@@ -643,14 +647,14 @@ train_data_diff <- train_data %>%
 
 # 2. Préparer les variables exogènes avec les trois variables différenciées
 exog_train <- train_data_diff %>%
-  select(GDPV_diff) %>%
-  na.omit()  # Supprimer les lignes avec NA (première ligne après différenciation)
+  dplyr::select(GDPV_diff) %>%  # Sélectionner uniquement la colonne GDPV_diff
+  dplyr::filter(!is.na(GDPV_diff))  # Supprimer les lignes où GDPV_diff est NA
 
 # 3. Ajuster le modèle ARIMAX sur train_data en utilisant les variables exogènes modifiées
-arimax_model <- arima(train_data$Adj.Close[2:nrow(train_data)], order = c(4, 1, 5), xreg = exog_train)
+arimax_model <- arima(train_data$Close[2:nrow(train_data)], order = c(4, 1, 5), xreg = exog_train)
 
 # 4. Prédictions in-sample (ensemble d'entraînement)
-fitted_arimax <- train_data$Adj.Close[2:nrow(train_data)] - residuals(arimax_model)
+fitted_arimax <- train_data$Close[2:nrow(train_data)] - residuals(arimax_model)
 
 # 5. Calcul des métriques pour l'ensemble d'entraînement
 rmse_arimax <- sqrt(mean(residuals(arimax_model)^2, na.rm = TRUE))
@@ -664,7 +668,7 @@ cat("MAE :", mae_arimax, "\n")
 # 7. Visualiser les prédictions in-sample
 plot_data_train <- data.frame(
   Time = train_data$Date[2:nrow(train_data)],  
-  Observed = train_data$Adj.Close[2:nrow(train_data)], 
+  Observed = train_data$Close[2:nrow(train_data)], 
   ARIMAX = fitted_arimax
 )
 
@@ -672,7 +676,7 @@ ggplot(plot_data_train, aes(x = Time)) +
   geom_line(aes(y = Observed, color = "Observed")) +
   geom_line(aes(y = ARIMAX, color = "ARIMAX"), linetype = "dashed") +
   labs(title = "Modèle ARIMAX avec GDPV_diff, CPIH_YTYPCT_diff et UNR_us_diff",
-       x = "Date", y = "Adj.Close") +
+       x = "Date", y = "Close") +
   scale_color_manual(values = c("Observed" = "black", "ARIMAX" = "red")) +
   theme_minimal()
 
@@ -689,17 +693,17 @@ test_data_diff <- test_data %>%
   )
 
 # 2. Préparer les variables exogènes avec les trois variables différenciées pour l'ensemble de test
-exog_test <- test_data_diff %>%
-  select(GDPV_diff) %>%
-  na.omit()  # Supprimer les lignes avec NA (première ligne après différenciation)
 
+exog_test <- test_data_diff %>%
+  dplyr::select(GDPV_diff) %>%  # Sélectionner uniquement la colonne GDPV_diff
+  dplyr::filter(!is.na(GDPV_diff))  # Supprimer les lignes où GDPV_diff est NA
 # 3. Prédictions sur l'ensemble de test
 predictions_test <- predict(arimax_model, n.ahead = nrow(exog_test), newxreg = exog_test)$pred
 
 # 4. Créer le dataframe des prédictions
 plot_data_test <- data.frame(
   Time = test_data$Date[2:nrow(test_data)],
-  Observed = test_data$Adj.Close[2:nrow(test_data)],
+  Observed = test_data$Close[2:nrow(test_data)],
   Predicted = predictions_test
 )
 
@@ -708,7 +712,7 @@ ggplot(plot_data_test, aes(x = Time)) +
   geom_line(aes(y = Observed, color = "Observed")) +
   geom_line(aes(y = Predicted, color = "Predicted"), linetype = "dashed") +
   labs(title = "Prédictions ARIMAX sur l'ensemble de test",
-       x = "Date", y = "Adj.Close") +
+       x = "Date", y = "Close") +
   scale_color_manual(values = c("Observed" = "black", "Predicted" = "red")) +
   theme_minimal()
 
@@ -729,14 +733,15 @@ cat("MAE :", mae_test, "\n")
 ```{r}
 # 1. Préparer les variables exogènes avec les séries non différenciées
 exog_train <- train_data %>%
-  select(Stochastic_K) %>%
-  na.omit()  # Supprimer les lignes avec NA (si nécessaire)
+  dplyr::select(Stochastic_K) %>%  # Sélectionner uniquement la colonne Stochastic_K
+  dplyr::filter(!is.na(Stochastic_K))  # Supprimer les lignes où Stochastic_K est NA
+
 
 # 2. Ajuster le modèle ARIMAX sur train_data en utilisant les variables exogènes non différenciées
-arimax_model <- arima(train_data$Adj.Close, order = c(4, 1, 5), xreg = exog_train)
+arimax_model <- arima(train_data$Close, order = c(4, 1, 5), xreg = exog_train)
 
 # 3. Prédictions in-sample pour l'ensemble d'entraînement
-fitted_arimax <- train_data$Adj.Close - residuals(arimax_model)
+fitted_arimax <- train_data$Close - residuals(arimax_model)
 
 # 4. Calcul des métriques pour l'ensemble d'entraînement
 rmse_arimax <- sqrt(mean(residuals(arimax_model)^2, na.rm = TRUE))
@@ -750,7 +755,7 @@ cat("MAE :", mae_arimax, "\n")
 # 6. Visualiser les prédictions in-sample
 plot_data_train <- data.frame(
   Time = train_data$Date,  # Pas besoin d'exclure la première ligne ici
-  Observed = train_data$Adj.Close, 
+  Observed = train_data$Close, 
   ARIMAX = fitted_arimax
 )
 
@@ -758,7 +763,7 @@ ggplot(plot_data_train, aes(x = Time)) +
   geom_line(aes(y = Observed, color = "Observed")) +
   geom_line(aes(y = ARIMAX, color = "ARIMAX"), linetype = "dashed") +
   labs(title = "Modèle ARIMAX avec GDPV, CPIH_YTYPCT et UNR_us",
-       x = "Date", y = "Adj.Close") +
+       x = "Date", y = "Close") +
   scale_color_manual(values = c("Observed" = "black", "ARIMAX" = "red")) +
   theme_minimal()
 
@@ -768,8 +773,9 @@ ggplot(plot_data_train, aes(x = Time)) +
 
 # 1. Préparer les variables exogènes avec les séries non différenciées pour l'ensemble de test
 exog_test <- test_data %>%
-  select(Stochastic_K) %>%
-  na.omit()  # Supprimer les lignes avec NA (si nécessaire)
+  dplyr::select(Stochastic_K) %>%  # Sélectionner uniquement la colonne Stochastic_K
+  dplyr::filter(!is.na(Stochastic_K))  # Supprimer les lignes où Stochastic_K est NA
+
 
 # 2. Prédictions sur l'ensemble de test
 predictions_test <- predict(arimax_model, n.ahead = nrow(exog_test), newxreg = exog_test)$pred
@@ -777,7 +783,7 @@ predictions_test <- predict(arimax_model, n.ahead = nrow(exog_test), newxreg = e
 # 3. Créer le dataframe des prédictions
 plot_data_test <- data.frame(
   Time = test_data$Date,
-  Observed = test_data$Adj.Close,
+  Observed = test_data$Close,
   Predicted = predictions_test
 )
 
@@ -786,7 +792,7 @@ ggplot(plot_data_test, aes(x = Time)) +
   geom_line(aes(y = Observed, color = "Observed")) +
   geom_line(aes(y = Predicted, color = "Predicted"), linetype = "dashed") +
   labs(title = "Prédictions ARIMAX sur l'ensemble de test",
-       x = "Date", y = "Adj.Close") +
+       x = "Date", y = "Close") +
   scale_color_manual(values = c("Observed" = "black", "Predicted" = "red")) +
   theme_minimal()
 
@@ -806,6 +812,7 @@ cat("MAE :", mae_test, "\n")
 
 
 # sur les log returns 
+
 ```{r}
 # Définir les paramètres pour les modèles ARMA
 p_values <- 1:6  # Valeurs de p
@@ -823,8 +830,8 @@ for (p in p_values) {
   for (q in q_values) {
     model_name <- paste0("ARMA", p, q)
     
-    # Ajuster le modèle ARMA(p, q) sur les log_returns_train
-    models[[model_name]] <- arima(log_returns_train, order = c(p, 0, q))
+    # Ajuster le modèle ARMA(p, q) sur les train_data$Return
+    models[[model_name]] <- arima(train_data$Return, order = c(p, 0, q))
     
     # Récupérer les résidus et effectuer le test de Ljung-Box
     resid <- residuals(models[[model_name]])
@@ -867,15 +874,15 @@ if (length(valid_models) > 0) {
 library(ggplot2)
 library(dplyr)
 
-arma_model <- arima(log_returns_train, order = c(2, 0, 5))
+arma_model <- arima(train_data$Return, order = c(2, 0, 5))
 
 # Faire des prédictions in-sample (valeurs ajustées)
-fitted_train <- log_returns_train - residuals(arma_model)
+fitted_train <- train_data$Return - residuals(arma_model)
 
 # Préparer les données pour ggplot
 plot_data_train <- data.frame(
-  Time = train_data$Date[-1],  # Exclure la première ligne (log diff)
-  Observed = log_returns_train,   # Série log_returns
+  Time = train_data$Date,  # Exclure la première ligne (log diff)
+  Observed = train_data$Return,   # Série log_returns
   Predicted = fitted_train        # Prédictions du modèle ARMA
 )
 
@@ -938,145 +945,500 @@ On vérifie les performances sur l'ensemble test :
 
 ```{r}
 library(forecast)
-# Préparer les données pour l'ensemble test (log returns sur les données de test)
-log_returns_test <- diff(log(test_data$Adj.Close))
-log_returns_test <- na.omit(log_returns_test)
+library(ggplot2)
+library(dplyr)
 
-# Prédictions in-sample sur l'ensemble test avec le meilleur modèle ARMA
-forecast_result <- forecast(arma_model, h = length(log_returns_test))
+# 1. Prédictions in-sample sur l'ensemble test avec le modèle ARMA
+forecast_result <- forecast(arma_model, h = length(test_data$Return))
 
-# Extraire les prédictions et les intervalles de confiance
+# 2. Extraire les prédictions
 predictions_test <- forecast_result$mean
-lower_bound <- forecast_result$lower[, 2]  # Intervalle de confiance à 95% (bande inférieure)
-upper_bound <- forecast_result$upper[, 2]  # Intervalle de confiance à 95% (bande supérieure)
 
-# Préparer les données pour ggplot pour l'ensemble test
+# 3. Préparer les données pour ggplot pour l'ensemble test
 plot_data_test <- data.frame(
-  Time = test_data$Date[-1],  # Exclure la première ligne (log diff)
-  Observed = log_returns_test,   # Série log_returns
-  Predicted = predictions_test,    # Prédictions du modèle ARMA
-  Lower = lower_bound,            # Limite inférieure de l'intervalle de confiance
-  Upper = upper_bound             # Limite supérieure de l'intervalle de confiance
+  Time = test_data$Date,
+  Observed = test_data$Return,
+  Predicted = predictions_test
 )
 
-# Calculer les erreurs pour l'ensemble test
-errors_test <- plot_data_test$Observed - plot_data_test$Predicted
+# 4. Transformation en prix de clôture
+# Dernier prix de clôture connu (fin de l'ensemble train)
+last_train_price <- 6473.76  # Remplacez par le prix de clôture réel si nécessaire
 
-# Calculer le RMSE et MAE pour l'ensemble test
-rmse_test <- sqrt(mean(errors_test^2))
-mae_test <- mean(abs(errors_test))
+plot_data_test <- plot_data_test %>%
+  mutate(
+    Observed_Price = last_train_price * cumprod(exp(Observed)),  # Transformation des log-returns observés
+    Predicted_Price = last_train_price * cumprod(exp(Predicted))  # Transformation des log-returns prédites
+  )
+
+# 5. Calcul des erreurs pour les prix
+errors_test <- plot_data_test$Observed_Price - plot_data_test$Predicted_Price
+
+# Calcul des métriques : RMSE et MAE pour l'ensemble test
+rmse_test <- sqrt(mean(errors_test^2, na.rm = TRUE))
+mae_test <- mean(abs(errors_test), na.rm = TRUE)
 
 # Afficher les résultats pour l'ensemble test
-cat("Performance du modèle ARMA pour l'ensemble test:\n")
-cat("RMSE: ", rmse_test, "\n")
-cat("MAE: ", mae_test, "\n")
+cat("Performance du modèle ARMA sur les prix de clôture pour l'ensemble test:\n")
+cat("RMSE (Prix): ", rmse_test, "\n")
+cat("MAE (Prix): ", mae_test, "\n")
 
-# Sélectionner un sous-échantillon spécifique sur l'ensemble test (par exemple, janvier 2023)
-plot_data_test$Year <- format(plot_data_test$Time, "%Y")
-plot_data_test$Month <- format(plot_data_test$Time, "%m")
-subsample_month_test <- filter(plot_data_test, Year == "2023" & Month == "01")
-
-# Calculer les erreurs pour ce mois
-errors_month_test <- subsample_month_test$Observed - subsample_month_test$Predicted
-
-# Calculer le RMSE pour ce mois
-rmse_month_test <- sqrt(mean(errors_month_test^2))
-
-# Calculer le MAE pour ce mois
-mae_month_test <- mean(abs(errors_month_test))
-
-# Afficher les résultats pour le mois spécifié (janvier 2023)
-cat("Performance du modèle ARMA pour janvier 2023 dans l'ensemble test:\n")
-cat("RMSE: ", rmse_month_test, "\n")
-cat("MAE: ", mae_month_test, "\n")
-
-# Générer un graphique des prédictions sur l'ensemble test avec les intervalles de confiance
+# 7. Graphique des prix de clôture
 ggplot(plot_data_test, aes(x = Time)) +
-  geom_line(aes(y = Observed), color = 'black', linewidth = 1) +  # Série observée en noir
-  geom_line(aes(y = Predicted), color = 'blue', linewidth = 1) +  # Prédictions en bleu
-  geom_ribbon(aes(ymin = Lower, ymax = Upper), fill = 'blue', alpha = 0.2) +  # Intervalles de confiance en bleu clair
-  labs(title = "Prédictions ARMA sur l'ensemble test",
-       x = "Date", y = "Log-returns") +
+  geom_line(aes(y = Observed_Price, color = "Observed Price"), linewidth = 1) +  # Prix observés en noir
+  geom_line(aes(y = Predicted_Price, color = "Predicted Price"), linewidth = 1) +  # Prix prédit en bleu
+  labs(title = "Prédictions ARMA sur les prix de clôture (ensemble test)",
+       x = "Date", y = "Prix de clôture") +
+  scale_color_manual(values = c("Observed Price" = "black", "Predicted Price" = "blue")) +
   theme_minimal()
 
 ```
 
 ```{r}
-# Données initiales
-train_length <- length(log_returns_train)
-test_length <- length(log_returns_test)
-
-log_returns <- c(log_returns_train, rep(NA, test_length))  # Série étendue pour inclure les prédictions test
-
-# Récupérer les coefficients du modèle ARMA(25)
-phi <- arma_model$coef[grep("^ar", names(arma_model$coef))]  # Coefficients AR
-theta <- arma_model$coef[grep("^ma", names(arma_model$coef))]  # Coefficients MA
-intercept <- ifelse("intercept" %in% names(arma_model$coef), arma_model$coef["intercept"], 0)  # Intercept
-p <- length(phi)  # Ordre AR
-q <- length(theta)  # Ordre MA
-
-# Initialiser les prédictions et résidus
-predicted <- c(fitted(arma_model), rep(NA, test_length))  # Prédictions pour train + test
-residuals <- numeric(train_length + test_length)  # Résidus (ε_t)
-
-# Remplir les résidus pour l'ensemble train
-residuals[1:train_length] <- log_returns_train - predicted[1:train_length]
-
-# Boucle de prédiction pour l'ensemble test
-for (t in (train_length + 1):(train_length + test_length)) {
-  # Calculer le terme AR (auto-régressif)
-  ar_term <- 0
-  if (t > p) {
-    ar_values <- log_returns[(t - p):(t - 1)]
-    ar_term <- sum(phi * rev(ar_values), na.rm = TRUE)
-  }
-  
-  # Calculer le terme MA (moyenne mobile)
-  ma_term <- 0
-  if (t > q) {
-    ma_values <- residuals[(t - q):(t - 1)]
-    ma_term <- sum(theta * rev(ma_values), na.rm = TRUE)
-  }
-  
-  # Prédiction à l'instant t
-  predicted[t] <- intercept + ar_term + ma_term
-  
-  # Mettre à jour la série log_returns (avec les nouvelles prédictions)
-  log_returns[t] <- predicted[t]
-  
-  # Initialiser le résidu à 0 (car il n'est pas observable dans l'ensemble test)
-  residuals[t] <- 0
-}
-
-# Extraire les prédictions pour l'ensemble test
-predictions_test <- predicted[(train_length + 1):(train_length + test_length)]
-
-# Calculer les métriques pour l'ensemble test
-errors_test <- log_returns_test - predictions_test
-rmse_test <- sqrt(mean(errors_test^2))
-mae_test <- mean(abs(errors_test))
-
-# Afficher les résultats pour l'ensemble test
-cat("Performance du modèle ARMA(25) pour l'ensemble test:\n")
-cat("RMSE: ", rmse_test, "\n")
-cat("MAE: ", mae_test, "\n")
-
-# Visualiser les prédictions vs valeurs observées pour l'ensemble test
+library(dplyr)
+library(forecast)
 library(ggplot2)
+
+# 1. Préparation des données exogènes pour l'ensemble d'entraînement
+exog_train <- train_data %>%
+  dplyr::select(GDPV) %>%
+  mutate(GDPV_diff = c(NA, diff(GDPV))) %>%  # Calcul de la différence
+  dplyr::filter(!is.na(GDPV_diff))  # Supprimer les lignes avec NA
+
+# Ajuster Return pour correspondre aux données disponibles
+dependent_var_train <- train_data$Return[-1]  # Enlever la première observation pour aligner avec diff
+
+# 2. Ajustement du modèle ARMAX
+armax_model <- arima(
+  dependent_var_train,  # Log-returns comme variable dépendante
+  order = c(2, 0, 5),  # Paramètres ARIMA(p, d, q)
+  xreg = exog_train$GDPV_diff  # Variable exogène différenciée
+)
+
+# 3. Évaluation des résidus
+residuals_armax <- residuals(armax_model)
+Box.test(residuals_armax, lag = 30, type = "Ljung-Box")  # Test de blancheur des résidus
+
+# 4. Préparation des données exogènes pour l'ensemble de test
+exog_test <- test_data %>%
+  dplyr::select(GDPV) %>%
+  mutate(GDPV_diff = c(NA, diff(GDPV))) %>%  # Calcul de la différence
+  dplyr::filter(!is.na(GDPV_diff))  # Supprimer les lignes avec NA
+
+# Ajuster les données observées pour l'ensemble de test
+dependent_var_test <- test_data$Return[-1]  # Aligner avec les valeurs différenciées
+
+# 5. Prédictions sur l'ensemble de test
+predictions_test <- predict(
+  armax_model,
+  n.ahead = nrow(exog_test),
+  newxreg = exog_test$GDPV_diff
+)$pred
+
+# 6. Transformation des log-returns en prix de clôture
+# Dernier prix de clôture connu (fin de l'ensemble train)
+last_train_price <- 6473.76  
+
+# Créer un DataFrame combiné pour visualisation
 plot_data_test <- data.frame(
-  Time = test_data$Date[-1],
-  Observed = log_returns_test,
+  Time = test_data$Date[-1],  # Ajustement pour les valeurs différenciées
+  Observed = dependent_var_test,
   Predicted = predictions_test
 )
 
+# Transformation en prix de clôture
+plot_data_test <- plot_data_test %>%
+  mutate(
+    Observed_Price = last_train_price * cumprod(exp(Observed)),  # Prix observés
+    Predicted_Price = last_train_price * cumprod(exp(Predicted))  # Prix prédits
+  )
+
+# 7. Visualisation des résultats en prix
 ggplot(plot_data_test, aes(x = Time)) +
-  geom_line(aes(y = Observed, color = "Observed")) +
-  geom_line(aes(y = Predicted, color = "Predicted")) +
-  labs(title = "Prédictions ARMA(25) pour l'ensemble test",
-       y = "Log-returns", color = "Légende") +
+  geom_line(aes(y = Observed_Price, color = "Observed Price")) +
+  geom_line(aes(y = Predicted_Price, color = "Predicted Price"), linetype = "dashed") +
+  labs(title = "Prix de clôture observés vs prédits avec GDPV différencié",
+       x = "Date", y = "Prix de clôture") +
+  scale_color_manual(values = c("Observed Price" = "black", "Predicted Price" = "blue")) +
+  theme_minimal()
+
+# 8. Calcul des erreurs sur les prix
+errors_prices <- plot_data_test$Observed_Price - plot_data_test$Predicted_Price
+
+# Calcul des métriques d'erreur : RMSE et MAE
+rmse_prices <- sqrt(mean(errors_prices^2, na.rm = TRUE))  # RMSE
+mae_prices <- mean(abs(errors_prices), na.rm = TRUE)      # MAE
+
+# Affichage des performances
+cat("Performance sur les prix de clôture :\n")
+cat("RMSE (Prix): ", rmse_prices, "\n")
+cat("MAE (Prix): ", mae_prices, "\n")
+
+```
+
+combinaison des variables I(1) 
+
+```{r}
+library(dplyr)
+library(forecast)
+library(ggplot2)
+library(combinat)
+
+# Liste des variables I(1)
+variables_I1 <- c("GDPV", "CPIH_YTYPCT", "UNR_us", "High_minus_Low", "SMA_5",
+                  "SMA_10", "SMA_20", "WMA_5", "WMA_10", "WMA_20", "RSI", "Williams_R", "MACD")
+
+# Fonction pour préparer les données différenciées
+prepare_diff_data <- function(data, vars) {
+  data %>%
+    dplyr::select(all_of(vars)) %>%
+    mutate(across(everything(), ~ c(NA, diff(.)))) %>%
+    filter(complete.cases(.))
+}
+
+# Initialiser les résultats
+results <- data.frame(Combination = character(), RMSE = numeric(), MAE = numeric(), stringsAsFactors = FALSE)
+
+# Tester toutes les combinaisons de 1 à 3 variables
+combinations <- unlist(lapply(1:4, function(k) combn(variables_I1, k, simplify = FALSE)), recursive = FALSE)
+
+# Dernier prix connu pour transformer en prix de clôture
+last_train_price <- 6473.76
+
+# Boucle sur chaque combinaison
+for (comb in combinations) {
+  # Préparer les données différenciées pour train et test
+  exog_train <- prepare_diff_data(train_data, comb)
+  exog_test <- prepare_diff_data(test_data, comb)
+  
+  # Sauter si les données exogènes ne correspondent pas en taille
+  if (nrow(exog_train) != nrow(train_data) - 1 || nrow(exog_test) != nrow(test_data) - 1) next
+  
+  # Ajuster la variable dépendante
+  dependent_var_train <- train_data$Return[-1]
+  
+  # Ajuster le modèle ARMAX
+  armax_model <- tryCatch(
+    arima(dependent_var_train, order = c(2, 0, 5), xreg = as.matrix(exog_train)),
+    error = function(e) NULL
+  )
+  
+  # Vérifier si le modèle a été correctement ajusté
+  if (is.null(armax_model)) next
+  
+  # Prédictions sur l'ensemble de test
+  predictions_test <- tryCatch(
+    predict(armax_model, n.ahead = nrow(exog_test), newxreg = as.matrix(exog_test))$pred,
+    error = function(e) NULL
+  )
+  
+  # Vérifier si les prédictions ont été effectuées
+  if (is.null(predictions_test)) next
+  
+  # Transformation en prix de clôture
+  observed_prices <- last_train_price * cumprod(exp(test_data$Return[-1]))
+  predicted_prices <- last_train_price * cumprod(exp(predictions_test))
+  
+  # Calcul des erreurs
+  errors_prices <- observed_prices - predicted_prices
+  rmse <- sqrt(mean(errors_prices^2, na.rm = TRUE))
+  mae <- mean(abs(errors_prices), na.rm = TRUE)
+  
+  # Ajouter les résultats
+  results <- rbind(results, data.frame(
+    Combination = paste(comb, collapse = ", "),
+    RMSE = rmse,
+    MAE = mae,
+    stringsAsFactors = FALSE
+  ))
+}
+
+# Identifier le meilleur modèle
+best_model <- results[which.min(results$RMSE), ]
+
+# Afficher les résultats
+cat("Meilleur modèle trouvé :\n")
+print(best_model)
+
+# Afficher tous les résultats triés par RMSE
+results <- results[order(results$RMSE), ]
+print(head(results, 20))  # Top 10 modèles
+
+```
+
+```{r}
+# Graphique pour le meilleur modèle trouvé
+
+# Extraire les variables de la meilleure combinaison
+best_combination_vars <- unlist(strsplit(best_model$Combination, ", "))
+
+# Préparer les données différenciées pour la meilleure combinaison
+exog_train_best <- prepare_diff_data(train_data, best_combination_vars)
+exog_test_best <- prepare_diff_data(test_data, best_combination_vars)
+
+# Ajuster la variable dépendante
+dependent_var_train_best <- train_data$Return[-1]
+
+# Ajuster le modèle ARMAX pour la meilleure combinaison
+armax_model_best <- arima(
+  dependent_var_train_best,
+  order = c(2, 0, 5),
+  xreg = as.matrix(exog_train_best)
+)
+
+# Prédictions sur l'ensemble de test pour le meilleur modèle
+predictions_test_best <- predict(
+  armax_model_best,
+  n.ahead = nrow(exog_test_best),
+  newxreg = as.matrix(exog_test_best)
+)$pred
+
+# Transformation des log-returns en prix de clôture
+last_train_price <- 6473.76  # Dernier prix connu
+observed_prices_best <- last_train_price * cumprod(exp(test_data$Return[-1]))
+predicted_prices_best <- last_train_price * cumprod(exp(predictions_test_best))
+
+# Préparer les données pour le graphique
+plot_data_test_best <- data.frame(
+  Time = test_data$Date[-1],
+  Observed_Price = observed_prices_best,
+  Predicted_Price = predicted_prices_best
+)
+
+# Générer le graphique
+ggplot(plot_data_test_best, aes(x = Time)) +
+  geom_line(aes(y = Observed_Price, color = "Observed Price")) +
+  geom_line(aes(y = Predicted_Price, color = "Predicted Price"), linetype = "dashed") +
+  labs(
+    title = paste("Meilleur modèle ARMAX avec les variables :", best_model$Combination),
+    x = "Date",
+    y = "Prix de clôture"
+  ) +
+  scale_color_manual(values = c("Observed Price" = "black", "Predicted Price" = "blue")) +
   theme_minimal()
 
 ```
+
+
+```{r}
+library(dplyr)
+library(forecast)
+library(ggplot2)
+
+# Variables I(0)
+variables_I0 <- c("Close_minus_Open", "Momentum", "Stochastic_K", "Stochastic_D", "CCI")
+
+# Meilleures combinaisons I(1) identifiées
+best_combinations_I1 <- list(
+  c("High_minus_Low", "SMA_5", "WMA_5"),
+  c("High_minus_Low", "SMA_5", "WMA_5", "MACD"),
+  c("SMA_5", "MACD"),
+  c("SMA_5", "RSI", "Williams_R", "MACD"),
+  c("SMA_5", "WMA_5", "Williams_R"),
+  c("SMA_5", "WMA_5", "RSI", "Williams_R"),
+  c("SMA_5", "WMA_5", "MACD"),
+  c("SMA_5", "WMA_5", "Williams_R", "MACD"),
+  c("SMA_5"),
+  c("High_minus_Low", "SMA_5", "WMA_5", "RSI")
+)
+
+# Préparer les données différenciées
+prepare_diff_data <- function(data, vars) {
+  data %>%
+    dplyr::select(all_of(vars)) %>%
+    mutate(across(everything(), ~ c(NA, diff(.)))) %>%
+    filter(complete.cases(.))
+}
+
+# Dernier prix connu pour la conversion en prix de clôture
+last_train_price <- 6473.76
+
+# Initialiser les résultats
+results <- data.frame(Combination = character(), RMSE = numeric(), MAE = numeric(), stringsAsFactors = FALSE)
+
+# Tester les combinaisons enrichies
+for (comb_I1 in best_combinations_I1) {
+  for (k in 1:2) {  # Ajouter 1 ou 2 variables I(0)
+    comb_I0 <- combn(variables_I0, k, simplify = FALSE)
+    
+    for (extra_vars in comb_I0) {
+      # Combinaison totale
+      total_combination <- c(comb_I1, extra_vars)
+      
+      # Préparer les données pour train et test
+      exog_train <- prepare_diff_data(train_data, total_combination)
+      exog_test <- prepare_diff_data(test_data, total_combination)
+      
+      # Sauter si tailles incompatibles
+      if (nrow(exog_train) != nrow(train_data) - 1 || nrow(exog_test) != nrow(test_data) - 1) next
+      
+      # Ajuster la variable dépendante
+      dependent_var_train <- train_data$Return[-1]
+      
+      # Ajuster le modèle ARMAX
+      armax_model <- tryCatch(
+        arima(dependent_var_train, order = c(2, 0, 5), xreg = as.matrix(exog_train)),
+        error = function(e) NULL
+      )
+      
+      # Vérifier si le modèle a été correctement ajusté
+      if (is.null(armax_model)) next
+      
+      # Prédictions sur l'ensemble de test
+      predictions_test <- tryCatch(
+        predict(armax_model, n.ahead = nrow(exog_test), newxreg = as.matrix(exog_test))$pred,
+        error = function(e) NULL
+      )
+      
+      # Vérifier si les prédictions sont disponibles
+      if (is.null(predictions_test)) next
+      
+      # Transformation en prix de clôture
+      observed_prices <- last_train_price * cumprod(exp(test_data$Return[-1]))
+      predicted_prices <- last_train_price * cumprod(exp(predictions_test))
+      
+      # Calcul des erreurs
+      errors_prices <- observed_prices - predicted_prices
+      rmse <- sqrt(mean(errors_prices^2, na.rm = TRUE))
+      mae <- mean(abs(errors_prices), na.rm = TRUE)
+      
+      # Ajouter les résultats
+      results <- rbind(results, data.frame(
+        Combination = paste(total_combination, collapse = ", "),
+        RMSE = rmse,
+        MAE = mae,
+        stringsAsFactors = FALSE
+      ))
+    }
+  }
+}
+
+# Identifier le meilleur modèle
+best_model <- results[which.min(results$RMSE), ]
+
+# Afficher les résultats
+cat("Meilleur modèle enrichi trouvé :\n")
+print(best_model)
+
+# Top 10 des modèles
+results <- results[order(results$RMSE), ]
+print(head(results, 10))
+
+# Visualisation pour le meilleur modèle
+best_combination <- unlist(strsplit(best_model$Combination, ", "))
+exog_train_best <- prepare_diff_data(train_data, best_combination)
+exog_test_best <- prepare_diff_data(test_data, best_combination)
+
+# Ajuster le modèle pour le meilleur
+dependent_var_train <- train_data$Return[-1]
+best_armax_model <- arima(
+  dependent_var_train, order = c(2, 0, 5), xreg = as.matrix(exog_train_best)
+)
+predictions_test_best <- predict(
+  best_armax_model, n.ahead = nrow(exog_test_best), newxreg = as.matrix(exog_test_best)
+)$pred
+
+# Transformation en prix de clôture
+plot_data_best <- data.frame(
+  Time = test_data$Date[-1],
+  Observed_Price = last_train_price * cumprod(exp(test_data$Return[-1])),
+  Predicted_Price = last_train_price * cumprod(exp(predictions_test_best))
+)
+
+# Graphique
+ggplot(plot_data_best, aes(x = Time)) +
+  geom_line(aes(y = Observed_Price, color = "Observed Price")) +
+  geom_line(aes(y = Predicted_Price, color = "Predicted Price"), linetype = "dashed") +
+  labs(title = "Prix observés vs prédits pour le meilleur modèle enrichi",
+       x = "Date", y = "Prix de clôture") +
+  scale_color_manual(values = c("Observed Price" = "black", "Predicted Price" = "blue")) +
+  theme_minimal()
+
+```
+
+```{r}
+library(dplyr)
+library(forecast)
+library(ggplot2)
+
+# 1. Préparation des données exogènes pour l'ensemble d'entraînement
+exog_train <- train_data %>%
+  dplyr::select(Stochastic_K) %>%  # Sélectionner uniquement Stochastic_K
+  dplyr::filter(!is.na(Stochastic_K))  # Supprimer les lignes avec NA
+
+# Ajuster Return pour correspondre aux données disponibles
+dependent_var_train <- train_data$Return[!is.na(train_data$Stochastic_K)]  # Aligner avec exog_train
+
+# 2. Ajustement du modèle ARMAX
+armax_model <- arima(
+  dependent_var_train,  # Log-returns comme variable dépendante
+  order = c(2, 0, 5),  # Paramètres ARIMA(p, d, q)
+  xreg = exog_train$Stochastic_K  # Variable exogène
+)
+
+# 3. Évaluation des résidus
+residuals_armax <- residuals(armax_model)
+Box.test(residuals_armax, lag = 30, type = "Ljung-Box")  # Test de blancheur des résidus
+
+# 4. Préparation des données exogènes pour l'ensemble de test
+exog_test <- test_data %>%
+  dplyr::select(Stochastic_K) %>%
+  dplyr::filter(!is.na(Stochastic_K))  # Supprimer les lignes avec NA
+
+# Ajuster les données observées pour l'ensemble de test
+dependent_var_test <- test_data$Return[!is.na(test_data$Stochastic_K)]  # Aligner avec exog_test
+
+# 5. Prédictions sur l'ensemble de test
+predictions_test <- predict(
+  armax_model,
+  n.ahead = nrow(exog_test),
+  newxreg = exog_test$Stochastic_K
+)$pred
+
+# 6. Transformation des log-returns en prix de clôture
+# Dernier prix de clôture connu (fin de l'ensemble train)
+last_train_price <- 6473.76  # Remplacez par le prix correct si nécessaire
+
+# Créer un DataFrame combiné pour visualisation
+plot_data_test <- data.frame(
+  Time = test_data$Date[!is.na(test_data$Stochastic_K)],  # Ajustement pour les valeurs non-NA
+  Observed = dependent_var_test,
+  Predicted = predictions_test
+)
+
+# Transformation en prix de clôture
+plot_data_test <- plot_data_test %>%
+  mutate(
+    Observed_Price = last_train_price * cumprod(exp(Observed)),  # Prix observés
+    Predicted_Price = last_train_price * cumprod(exp(Predicted))  # Prix prédits
+  )
+
+# 7. Visualisation des résultats en prix
+ggplot(plot_data_test, aes(x = Time)) +
+  geom_line(aes(y = Observed_Price, color = "Observed Price")) +
+  geom_line(aes(y = Predicted_Price, color = "Predicted Price"), linetype = "dashed") +
+  labs(title = "Prix de clôture observés vs prédits avec Stochastic_K",
+       x = "Date", y = "Prix de clôture") +
+  scale_color_manual(values = c("Observed Price" = "black", "Predicted Price" = "blue")) +
+  theme_minimal()
+
+# 8. Calcul des erreurs sur les prix
+errors_prices <- plot_data_test$Observed_Price - plot_data_test$Predicted_Price
+
+# Calcul des métriques d'erreur : RMSE et MAE
+rmse_prices <- sqrt(mean(errors_prices^2, na.rm = TRUE))  # RMSE
+mae_prices <- mean(abs(errors_prices), na.rm = TRUE)      # MAE
+
+# Affichage des performances
+cat("Performance sur les prix de clôture :\n")
+cat("RMSE (Prix): ", rmse_prices, "\n")
+cat("MAE (Prix): ", mae_prices, "\n")
+
+```
+
+
+
+
 # modèle ARDL sur prix de clôture
 
 Vérification de l'ordre de statio des variables : 
@@ -1155,15 +1517,15 @@ Calcul de la corrélation avec la cible :
 
 ```{r}
 cor_with_target <- cor(
-  filtered_df$Adj.Close, 
-  filtered_df[, !(names(filtered_df) %in% c("Adj.Close", "Date"))], 
+  filtered_df$Close, 
+  filtered_df[, !(names(filtered_df) %in% c("Close", "Date"))], 
   use = "complete.obs"
 )
 
 cor_with_target
 
 #on ne garde que les variables qui ont une corrélation inférieure à 0.99 ou supérieure à 0.1) 
-cols_to_keep <- c("Date", "Adj.Close", 
+cols_to_keep <- c("Date", "Close", 
                   "GDPV", "CPIH_YTYPCT", "UNR_us", 
                   "High_minus_Low", 
                   "Momentum", "RSI", "MACD")
@@ -1198,21 +1560,21 @@ Test de Granger bilatéral :
 # Charger la bibliothèque nécessaire
 library(lmtest)
 
-# Liste des variables explicatives (exclure "Date" et "Adj.Close")
-variables <- colnames(filtered_df)[!(colnames(filtered_df) %in% c("Date", "Adj.Close"))]
+# Liste des variables explicatives (exclure "Date" et "Close")
+variables <- colnames(filtered_df)[!(colnames(filtered_df) %in% c("Date", "Close"))]
 
 # Stocker les résultats bilatéraux
 bilateral_results <- list()
 
 # Tester la causalité de Granger dans les deux directions
 for (var in variables) {
-  cat("\n--- Test de Granger entre Adj.Close et", var, "---\n")
+  cat("\n--- Test de Granger entre Close et", var, "---\n")
   
   # 1. Est-ce que la variable explicative Granger-cause la cible ?
-  test1 <- grangertest(filtered_df$Adj.Close ~ filtered_df[[var]], order = 1)
+  test1 <- grangertest(filtered_df$Close ~ filtered_df[[var]], order = 1)
   
   # 2. Est-ce que la cible Granger-cause la variable explicative ?
-  test2 <- grangertest(filtered_df[[var]] ~ filtered_df$Adj.Close, order = 1)
+  test2 <- grangertest(filtered_df[[var]] ~ filtered_df$Close, order = 1)
   
   # Stocker les résultats
   bilateral_results[[var]] <- list(
@@ -1221,29 +1583,29 @@ for (var in variables) {
   )
   
   # Afficher les résultats
-  cat("\n---", var, "Granger-cause Adj.Close ---\n")
+  cat("\n---", var, "Granger-cause Close ---\n")
   print(test1)
-  cat("\n--- Adj.Close Granger-cause", var, "---\n")
+  cat("\n--- Close Granger-cause", var, "---\n")
   print(test2)
 }
 
 ``` 
 
-test de cointégration : 
 
-```{r}
-library(urca)
-vars_I1 <- filtered_df[, c("Adj.Close", "MACD","RSI")]
-# Test de Johansen
-johansen_test <- ca.jo(vars_I1, type = "trace", ecdet = "none", K = 2)
-
-# Résultats
-summary(johansen_test)
-
-
-```
 
 les variables testées sont bien co-intégrées; nous pouvons lancer un modèle ARDL. 
+
+```{r}
+library(ARDL)
+new_dataframe_train <- new_dataframe[new_dataframe$Date < "2023-01-01", ]
+
+
+models_new <- auto_ardl(Close ~  GDPV + MACD , data = new_dataframe_train, max_order = 10)
+
+# The top 20 models according to the AIC
+models_new$top_orders
+
+```
 
 
 ```{r}
@@ -1255,83 +1617,6 @@ if (!require("vars")) install.packages("vars")
 library(vars)
 
 ```
-
-on fait ensuite la sélection automatique des lags via le critère d'AIC 
-
-```{r}
-library(ARDL)
-filtered_df_train <- filtered_df[filtered_df$Date < "2023-01-01", ]
-
-
-models <- auto_ardl(Adj.Close ~  GDPV + Momentum + RSI + MACD, data = filtered_df_train, max_order = 2)
-
-# The top 20 models according to the AIC
-models$top_orders
-
-
-
-```
-
-```{r}
-ardl_best <- models$best_model
-ardl_best$order
-
-summary(ardl_best)
-```
-
-```{r}
-
-# 1. Récupérer les résidus du modèle
-residuals_ardl <- residuals(ardl_best)
-
-# 2. Vérifier les résidus visuellement avec un graphique
-par(mfrow = c(2, 2))  # Placer plusieurs graphiques sur la même fenêtre
-plot(residuals_ardl, type = "l", main = "Graphique des Résidus", ylab = "Résidus", xlab = "Observations")
-abline(h = 0, col = "red")  # Ajouter une ligne horizontale à 0
-
-# Histogramme des résidus
-hist(residuals_ardl, main = "Histogramme des Résidus", xlab = "Résidus", col = "blue", border = "black", breaks = 50)
-
-# 4. Test d'autocorrélation des résidus (Durbin-Watson)
-library(lmtest)
-dwtest(ardl_best)
-
-# 5. Afficher l'ACF (Autocorrélation des Résidus)
-acf(residuals_ardl, main = "Autocorrélation des Résidus")
-
-```
-
-
-
-```{r}
-uecm_best <- uecm(ardl_best)
-summary(uecm_best)
-
-```
-
-```{r}
-recm_best <- recm(uecm_best, case = 2)
-summary(recm_best)
-```
-
-```{r}
-bounds_f_test(ardl_best, case = 2)
-tbounds <- bounds_t_test(uecm_best, case = 3, alpha = 0.05)
-tbounds
-```
-
-
-```{r}
-multipliers(ardl_best, type = "sr")
-```
-
-```{r}
-mult15 <- multipliers(ardl_best, type = 15, se = TRUE)
-plot_delay(mult15, interval = 0.95)
-
-```
-
-
 
 
 
@@ -1445,7 +1730,7 @@ for (var in variables) {
 
 
 ```{r}
-new_dataframe <- final_database[, c("Date", "Return", "CPIH_YTYPCT", "RSI", "Williams_R", "Stochastic_K")]
+new_dataframe <- final_database[, c("Date", "Return", "CPIH_YTYPCT")]
 
 cor_matrix <- cor(new_dataframe[, -which(names(filtered_df) == "Date")], use = "complete.obs")
 
@@ -1464,10 +1749,11 @@ new_dataframe$Williams_R <- NULL
 ```
 
 ```{r}
+library(ARDL)
 new_dataframe_train <- new_dataframe[new_dataframe$Date < "2023-01-01", ]
 
 
-models_new <- auto_ardl(Return ~  CPIH_YTYPCT + RSI + Stochastic_K, data = new_dataframe_train, max_order = 5)
+models_new <- auto_ardl(Return ~  CPIH_YTYPCT , data = new_dataframe_train, max_order = 10)
 
 # The top 20 models according to the AIC
 models_new$top_orders
@@ -1476,7 +1762,6 @@ models_new$top_orders
 
 
 ```{r}
-
 ardl_new <- models_new$best_model
 ardl_new$order
 summary(ardl_new)
@@ -1611,7 +1896,10 @@ cat("MAE: ", mae_month_train, "\n")
 ```
 
 ```{r}
+# Préparer le dataframe pour l'ensemble de test
 new_dataframe_test <- new_dataframe[new_dataframe$Date >= "2023-01-01", ]
+
+# Ajouter les décalages nécessaires pour Return et CPIH_YTYPCT
 new_dataframe_test <- new_dataframe_test %>%
   mutate(
     L1_Return = lag(Return, 1, default = tail(new_dataframe_train$Return, 1)),
@@ -1619,11 +1907,10 @@ new_dataframe_test <- new_dataframe_test %>%
     L3_Return = lag(Return, 3, default = tail(new_dataframe_train$Return, 3)[1]),
     L1_CPIH_YTYPCT = lag(CPIH_YTYPCT, 1, default = tail(new_dataframe_train$CPIH_YTYPCT, 1)),
     L2_CPIH_YTYPCT = lag(CPIH_YTYPCT, 2, default = tail(new_dataframe_train$CPIH_YTYPCT, 2)[1]),
-    L3_CPIH_YTYPCT = lag(CPIH_YTYPCT, 3, default = tail(new_dataframe_train$CPIH_YTYPCT, 3)[1]),
-    L1_RSI = lag(RSI, 1, default = tail(new_dataframe_train$RSI, 1)),
-    L2_RSI = lag(RSI, 2, default = tail(new_dataframe_train$RSI, 2)[1])
+    L3_CPIH_YTYPCT = lag(CPIH_YTYPCT, 3, default = tail(new_dataframe_train$CPIH_YTYPCT, 3)[1])
   )
 
+# Renommer les colonnes pour correspondre à la syntaxe du modèle ARDL
 new_dataframe_test <- new_dataframe_test %>%
   rename(
     `L(Return, 1)` = L1_Return,
@@ -1631,11 +1918,8 @@ new_dataframe_test <- new_dataframe_test %>%
     `L(Return, 3)` = L3_Return,
     `L(CPIH_YTYPCT, 1)` = L1_CPIH_YTYPCT,
     `L(CPIH_YTYPCT, 2)` = L2_CPIH_YTYPCT,
-    `L(CPIH_YTYPCT, 3)` = L3_CPIH_YTYPCT,
-    `L(RSI, 1)` = L1_RSI,
-    `L(RSI, 2)` = L2_RSI
+    `L(CPIH_YTYPCT, 3)` = L3_CPIH_YTYPCT
   )
-
 
 # Effectuer les prédictions avec le modèle ARDL converti en modèle linéaire
 predictions_test <- predict(ardl_new_lm, newdata = new_dataframe_test)
@@ -1643,21 +1927,19 @@ predictions_test <- predict(ardl_new_lm, newdata = new_dataframe_test)
 # Ajouter les prédictions dans le dataframe de test
 new_dataframe_test$Predicted <- predictions_test
 
-
-# Calcul des erreurs (observé - prédit)
+# Calcul des erreurs
 errors_test <- new_dataframe_test$Return - new_dataframe_test$Predicted
 
-# Calcul du RMSE et du MAE
-rmse_test <- sqrt(mean(errors_test^2))
-mae_test <- mean(abs(errors_test))
+# Calcul des métriques de performance
+rmse_test <- sqrt(mean(errors_test^2, na.rm = TRUE))
+mae_test <- mean(abs(errors_test), na.rm = TRUE)
 
 cat("Performance sur l'ensemble de test:\n")
 cat("RMSE: ", rmse_test, "\n")
 cat("MAE: ", mae_test, "\n")
 
-library(ggplot2)
-
 # Graphique des prédictions vs valeurs observées
+library(ggplot2)
 ggplot(new_dataframe_test, aes(x = Date)) +
   geom_line(aes(y = Return), color = 'black', linewidth = 1, linetype = "solid") +  # Observé
   geom_line(aes(y = Predicted), color = 'blue', linewidth = 1, linetype = "dashed") +  # Prédictions
@@ -1667,7 +1949,6 @@ ggplot(new_dataframe_test, aes(x = Date)) +
     y = "Return"
   ) +
   theme_minimal()
-
 
 ```
 
