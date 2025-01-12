@@ -1,0 +1,370 @@
+---
+title: "ARDL_model"
+author: "BOUILLON Mathis"
+date: "2025-01-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Loading packages : 
+```{r}
+# Load necessary packages for time series analysis
+if (!require(tseries)) install.packages("tseries")
+library(tseries)
+```
+
+
+Loading the final database : 
+
+```{r}
+final_database <- read_csv("final_database.csv", show_col_types = FALSE)
+final_database$Date <- as.Date(final_database$Date)
+
+numeric_columns <- setdiff(names(final_database), "Date")  # Sélectionner toutes les colonnes sauf 'Date'
+final_database[numeric_columns] <- lapply(final_database[numeric_columns], as.numeric)
+
+```
+
+# ARDL model 
+
+First, we want to check the hypothesis of this model. 
+
+THen, we examine the stationarity of each variable using a KPSS test. 
+```{r}
+# Keep only numeric columns for stationarity testing
+df_numeric <- final_database[, sapply(final_database, is.numeric)]
+
+# Prepare a data frame to store stationarity test results
+stationarity_results_kpss <- data.frame(
+  Variable = colnames(df_numeric),
+  p_value_Level = NA,  # p-value at the level
+  p_value_Diff = NA,   # p-value after differencing
+  Stationarity = NA    # Final stationarity classification
+)
+
+# Perform KPSS test on each variable for stationarity
+for (i in 1:ncol(df_numeric)) {
+  var_name <- colnames(df_numeric)[i]
+  variable <- df_numeric[[var_name]]
+  
+  # KPSS test at the level
+  kpss_level <- kpss.test(na.omit(variable), null = "Level")
+  p_value_level <- kpss_level$p.value
+  
+  # KPSS test after differencing
+  diff_variable <- diff(variable, differences = 1)
+  kpss_diff <- kpss.test(na.omit(diff_variable), null = "Level")
+  p_value_diff <- kpss_diff$p.value
+  
+  # Determine the stationarity level
+  if (p_value_level > 0.05) {
+    status <- "I(0)"
+  } else if (p_value_diff > 0.05) {
+    status <- "I(1)"
+  } else {
+    status <- "I(2)"
+  }
+  
+  # Save results in the data frame
+  stationarity_results_kpss[i, ] <- c(var_name, p_value_level, p_value_diff, status)
+}
+
+# Display KPSS stationarity test results
+print(stationarity_results_kpss)
+
+```
+
+We only select variables being I(0) or I(1)
+
+```{r}
+# Select variables that are either I(0) or I(1)
+i0_i1_vars <- stationarity_results_kpss$Variable[
+  stationarity_results_kpss$Stationarity %in% c("I(0)", "I(1)")
+]
+
+# Ensure variable names match those in the original database
+i0_i1_vars <- intersect(colnames(final_database), i0_i1_vars)
+
+# Filter the data to include only Date and selected variables
+filtered_df <- final_database[, c("Date", i0_i1_vars), drop = FALSE]
+```
+
+
+Then, we perform the Granger causality test : 
+
+```{r}
+# Load library for Granger causality tests
+library(lmtest)
+
+# Identify explanatory variables (exclude "Date" and "Return")
+variables <- colnames(filtered_df)[!(colnames(filtered_df) %in% c("Date", "Return"))]
+
+# Initialize a list to store Granger causality results
+bilateral_results <- list()
+
+# Test Granger causality in both directions for each variable
+for (var in variables) {
+  cat("\n--- Granger test between Return and", var, "---\n")
+  
+  # Check if the variable Granger-causes the target
+  test1 <- grangertest(filtered_df$Return ~ filtered_df[[var]], order = 1)
+  
+  # Check if the target Granger-causes the variable
+  test2 <- grangertest(filtered_df[[var]] ~ filtered_df$Return, order = 1)
+  
+  # Save results in the list
+  bilateral_results[[var]] <- list(
+    "Variable -> Target" = test1,
+    "Target -> Variable" = test2
+  )
+  
+  # Display results for each direction
+  cat("\n---", var, "Granger-causes Return ---\n")
+  print(test1)
+  cat("\n--- Return Granger-causes", var, "---\n")
+  print(test2)
+}
+
+```
+
+
+The only variable that is not Granger-caused by the variable Return is the inflation; then, we can only use that one in our ARDL model 
+
+```{r}
+# Load ARDL package and subset data for model building
+library(ARDL)
+new_dataframe <- final_database[, c("Date", "Return", "CPIH_YTYPCT")]
+
+# Split data into training and testing sets
+new_dataframe_train <- new_dataframe[new_dataframe$Date < "2023-01-01", ]
+
+# Fit ARDL model and identify the best model using AIC
+models_new <- auto_ardl(Return ~ CPIH_YTYPCT, data = new_dataframe_train, max_order = 10)
+
+# Display the top 20 models based on AIC
+models_new$top_orders
+
+```
+
+The best model based on AIC is with 3 lags for both variables. 
+Then, we run this model : 
+
+```{r}
+# Extract and summarize the best ARDL model
+ardl_new <- models_new$best_model
+ardl_new$order
+summary(ardl_new)
+
+# Retrieve and visualize residuals of the model
+residuals_ardl_new <- residuals(ardl_new)
+
+# Plot residuals over time
+par(mfrow = c(2, 2))  # Create a 2x2 grid for plots
+plot(residuals_ardl_new, type = "l", main = "Residuals", ylab = "Residuals", xlab = "Observations")
+abline(h = 0, col = "red")  # Add a horizontal line at zero
+
+# Plot histogram of residuals
+hist(residuals_ardl_new, main = "Residuals Histogram", xlab = "Residuals", col = "blue", border = "black", breaks = 50)
+
+# Perform Durbin-Watson test for autocorrelation in residuals
+library(lmtest)
+dwtest(ardl_new)
+
+# Plot autocorrelation of residuals
+acf(residuals_ardl_new, main = "Residuals Autocorrelation")
+
+```
+We observe that not so many coefficients are significant; it was predictable given that we did not put enough variables in  our model. The one left (inflation) is too de-correlated with the target to have a significant impact. 
+However, the residuals are not correlated (DW close to 2), and the distribution of the residuals looks like a normal one. We can still observed a high volatility. 
+
+Now, we want to check if the variables are co-integrated. As their order is different, we use the cointegration Bound Test after running the ARDL model : 
+
+```{r}
+# Perform bounds F-test for cointegration
+bounds_f_test(ardl_new, case = 2)
+bounds_f_test(ardl_new, case = 3)
+```
+
+There is a possible cointegration given the p-value. 
+
+Then, we can perform an ECM : 
+
+```{r}
+# Fit an Unrestricted Error Correction Model (UECM)
+uecm_new <- uecm(ardl_new)
+summary(uecm_new)
+
+# Fit a Restricted Error Correction Model (RECM)
+recm_new <- recm(uecm_new, case = 2)
+summary(recm_new)
+
+# Display short-run and long-run multipliers
+multipliers(ardl_new, type = "sr")  # Short-run multipliers
+multipliers(ardl_new)               # Long-run multipliers
+
+```
+
+
+To perform prediction, we transform our model into a linear model 
+```{r}
+# Convert ARDL model to linear model for forecasting
+ardl_new_lm <- to_lm(ardl_new)
+
+# Predict using in-sample data
+insample_data <- ardl_new$model
+predicted_values <- predict(ardl_new_lm, newdata = insample_data)
+
+# Add predictions to the training data frame
+used_rows <- rownames(insample_data)
+new_dataframe_train$Predicted <- NA
+new_dataframe_train$Predicted[as.numeric(used_rows)] <- predicted_values
+```
+
+
+We plot predictions on graph to compare it to the observed returns of CAC 40 index : 
+
+```{r}
+# Plot observed vs predicted returns by 5-year periods
+library(dplyr)
+library(ggplot2)
+
+# Add a column for 5-year periods
+plot_data_train <- new_dataframe_train %>%
+  mutate(
+    Year = as.numeric(format(Date, "%Y")),
+    Period = paste0(floor(Year / 5) * 5, "-", floor(Year / 5) * 5 + 4)
+  )
+
+# Generate plots for each 5-year period
+periods <- unique(plot_data_train$Period)
+for (period in periods) {
+  period_data <- filter(plot_data_train, Period == period)
+  
+  p <- ggplot(period_data, aes(x = Date)) +
+    geom_line(aes(y = Return), color = 'black', linewidth = 1) +
+    geom_line(aes(y = Predicted), color = 'blue', linewidth = 1) +
+    labs(title = paste("ARDL Predictions - Period:", period), x = "Date", y = "Return") +
+    theme_minimal() +
+    theme(legend.position = "none")
+  
+  print(p)
+}
+
+# Compute performance metrics (RMSE, MAE) for the training set
+errors_train <- plot_data_train$Return - plot_data_train$Predicted
+rmse_train <- sqrt(mean(errors_train^2, na.rm = TRUE))
+mae_train <- mean(abs(errors_train), na.rm = TRUE)
+
+cat("Training set performance:\n")
+cat("RMSE: ", rmse_train, "\n")
+cat("MAE: ", mae_train, "\n")
+
+
+```
+
+The ARDL predictions are not accurate on the training sample. 
+Furthermore, the metric performances are not good. This can already imply that they won't perform well on the test sample. 
+
+We can obbserve it by observing the result of this code : here, we perform the predictions on the test sample; then, we "convert" the returns to closing prices of the CAC 40 index thanks to the last closing price of the training sample. Then, we plot it. 
+```{r}
+# Prepare the dataframe for the test set
+new_dataframe_test <- new_dataframe[new_dataframe$Date >= "2023-01-01", ]
+
+# Add necessary lags for Return and CPIH_YTYPCT
+new_dataframe_test <- new_dataframe_test %>%
+  mutate(
+    L1_Return = lag(Return, 1, default = tail(new_dataframe_train$Return, 1)),
+    L2_Return = lag(Return, 2, default = tail(new_dataframe_train$Return, 2)[1]),
+    L3_Return = lag(Return, 3, default = tail(new_dataframe_train$Return, 3)[1]),
+    L1_CPIH_YTYPCT = lag(CPIH_YTYPCT, 1, default = tail(new_dataframe_train$CPIH_YTYPCT, 1)),
+    L2_CPIH_YTYPCT = lag(CPIH_YTYPCT, 2, default = tail(new_dataframe_train$CPIH_YTYPCT, 2)[1]),
+    L3_CPIH_YTYPCT = lag(CPIH_YTYPCT, 3, default = tail(new_dataframe_train$CPIH_YTYPCT, 3)[1])
+  )
+
+# Rename columns to match the ARDL model syntax
+new_dataframe_test <- new_dataframe_test %>%
+  rename(
+    `L(Return, 1)` = L1_Return,
+    `L(Return, 2)` = L2_Return,
+    `L(Return, 3)` = L3_Return,
+    `L(CPIH_YTYPCT, 1)` = L1_CPIH_YTYPCT,
+    `L(CPIH_YTYPCT, 2)` = L2_CPIH_YTYPCT,
+    `L(CPIH_YTYPCT, 3)` = L3_CPIH_YTYPCT
+  )
+
+# Make predictions using the ARDL model converted to a linear model
+predictions_test <- predict(ardl_new_lm, newdata = new_dataframe_test)
+
+# Add the predictions to the test dataframe
+new_dataframe_test$Predicted <- predictions_test
+
+# Calculate the errors
+errors_test <- new_dataframe_test$Return - new_dataframe_test$Predicted
+
+# Calculate performance metrics
+rmse_test <- sqrt(mean(errors_test^2, na.rm = TRUE))
+mae_test <- mean(abs(errors_test), na.rm = TRUE)
+
+cat("Performance on the test set:\n")
+cat("RMSE: ", rmse_test, "\n")
+cat("MAE: ", mae_test, "\n")
+
+# Plot predictions vs observed values
+library(ggplot2)
+ggplot(new_dataframe_test, aes(x = Date)) +
+  geom_line(aes(y = Return), color = 'black', linewidth = 1, linetype = "solid") +  # Observed
+  geom_line(aes(y = Predicted), color = 'blue', linewidth = 1, linetype = "dashed") +  # Predicted
+  labs(
+    title = "ARDL predictions on the test sample",
+    x = "Date",
+    y = "Return"
+  ) +
+  theme_minimal()
+
+# Last known closing price (from the end of the training set)
+last_train_price <- 6473.76
+
+# Calculate observed and predicted prices
+new_dataframe_test <- new_dataframe_test %>%
+  mutate(
+    Observed_Price = last_train_price * cumprod(exp(Return)),  # Observed prices
+    Predicted_Price = last_train_price * cumprod(exp(Predicted))  # Predicted prices
+  )
+
+# Plot observed vs predicted prices
+ggplot(new_dataframe_test, aes(x = Date)) +
+  geom_line(aes(y = Observed_Price), color = 'black', linewidth = 1, linetype = "solid") +  # Observed prices
+  geom_line(aes(y = Predicted_Price), color = 'blue', linewidth = 1, linetype = "dashed") +  # Predicted prices
+  labs(
+    title = "Observed vs Predicted Closing Prices",
+    x = "Date",
+    y = "Closing Price"
+  ) +
+  theme_minimal()
+
+# Calculate errors between observed and predicted prices
+errors_prices <- new_dataframe_test$Observed_Price - new_dataframe_test$Predicted_Price
+
+# Calculate RMSE and MAE for the prices
+rmse_prices <- sqrt(mean(errors_prices^2, na.rm = TRUE))  # RMSE
+mae_prices <- mean(abs(errors_prices), na.rm = TRUE)      # MAE
+
+# Calculate R-squared (coefficient of determination)
+ss_total <- sum((new_dataframe_test$Observed_Price - mean(new_dataframe_test$Observed_Price, na.rm = TRUE))^2, na.rm = TRUE)  # Total sum of squares
+ss_residual <- sum(errors_prices^2, na.rm = TRUE)  # Residual sum of squares
+r_squared <- 1 - (ss_residual / ss_total)  # R-squared
+
+# Display results
+cat("Performance on closing prices:\n")
+cat("RMSE (Price): ", rmse_prices, "\n")
+cat("MAE (Price): ", mae_prices, "\n")
+cat("R-squared (Price): ", r_squared, "\n")
+
+
+````
+
+We observe a decreasing trend, which is really not good because the time serie of the closing prices has a linear increasing trend. 
