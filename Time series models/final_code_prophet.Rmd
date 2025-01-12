@@ -20,7 +20,7 @@ library(dplyr)
 
 ```{r}
 # Spécifiez le chemin du fichier CSV
-fichier <- "C:/Users/mokom/OneDrive/Bureau/Projet_times_series/final_database.csv"
+fichier <- "../data/output/final_database.csv"
 
 # Utilisez la fonction read.csv() pour importer le fichier CSV
 close_df <- read.csv(fichier)

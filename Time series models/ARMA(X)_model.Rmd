@@ -35,7 +35,7 @@ library(forecast)
 Loading final database : 
 
 ```{r}
-final_database <- read_csv("final_database.csv", show_col_types = FALSE)
+final_database <- readr::read_csv("../data/output/final_database.csv", show_col_types = FALSE)
 final_database$Date <- as.Date(final_database$Date)
 
 numeric_columns <- setdiff(names(final_database), "Date")  
