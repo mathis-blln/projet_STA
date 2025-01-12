@@ -93,3 +93,4 @@ streamlit run app.py
 3. Follow the on-screen instructions to input the stock symbol, select a date range, and choose technical indicators or prediction models.
 
 
+# Time_series_proj-3A
