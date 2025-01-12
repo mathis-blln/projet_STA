@@ -1,0 +1,526 @@
+---
+title: 'Times series project : modeling CAC40 using Prophet model'
+author: "KOUGOUM Marilene"
+date: "2025-01-11"
+output: html_document
+---
+```{r}
+# Chargons les packages nécessaires
+library(ggplot2)
+library(quantmod)
+library(dplyr)
+```
+
+
+
+```{r}
+### Choix de l'indice CAC40
+
+```
+
+```{r}
+# Spécifiez le chemin du fichier CSV
+fichier <- "C:/Users/mokom/OneDrive/Bureau/Projet_times_series/final_database.csv"
+
+# Utilisez la fonction read.csv() pour importer le fichier CSV
+close_df <- read.csv(fichier)
+
+# Affichez les premières lignes pour vérifier l'importation
+head(close_df)
+```
+```{r}
+### Visualisation de l'indice boursier 
+close_df$Date <- as.Date(close_df$Date, format = "%Y-%m-%d") 
+
+ggplot(close_df, aes(x = Date, y = Close)) +
+  geom_line(color = "blue") +
+  labs(title = "Prix de clôture du CAC40",
+       x = "Date",
+       y = "Prix de clôture") +
+  theme_minimal()
+
+```
+
+
+### Data wrangling
+
+
+```{r}
+### Data wrangling: analyse des valeurs manquantes et des potentielles incohérences
+```
+
+
+```{r}
+library(naniar)
+vis_miss(close_df)
+```
+La variable Interest rate US présente 14% de valeurs manquantes. nous allons nous intérésser à comprendre si elle est missing completly at random, missing at random ou missing not at random. Pour ce faire on utilise un test de little
+
+```{r}
+#library(MissMech)
+### Effectuons un test de little pour verifier si nos données sont MCAR
+
+#library(MissMech)
+#numeric_data <- close_df %>% select(where(is.numeric))
+
+# Effectuer le test de Little
+#result <- TestMCARNormality(numeric_data)
+
+```
+La matrice de variance covariance est mal conditionnée, ce qui empêche le test de se mettre en oeuvre. Il se pourrait donc que notre variable d'intérêt ne soit pas MCAR car elle pourrait être correlée avec d'autres. verifions celà en utilisant la matrice de correlation
+
+```{r}
+
+library(corrplot)
+numeric_data <- close_df %>% select(where(is.numeric))
+
+# Calculer la matrice de corrélation entre les variables numériques
+correlations <- cor(numeric_data, use = "complete.obs")
+
+# Filtrer les corrélations dont la valeur absolue est inférieure ou égale à 0.5 en les remplaçant par 0
+correlations[abs(correlations) <= 0.5] <- 0
+
+# Afficher le graphique de la matrice de corrélation filtrée
+corrplot(correlations, method = "circle", type = "upper", 
+         col = colorRampPalette(c("blue", "white", "red"))(200), 
+         tl.cex = 0.8, number.cex = 0.7, addCoef.col = "black")
+
+
+
+
+```
+On observe que IRCB_us est fortement liée avec d'autres variables du data frame notamment UNR_us, IRCB, UNR , IRS, SMA_5, SMA_10, SMA_20, WMA_5, WMA_10 et WMA_20. Il semblerait donc que nos valeurs manquantes soient MAR. On va procéder à une imputation par CART, car elle est robuste en présence de muticolinéarité entre les variables explicatives.
+
+```{r}
+library(rpart)
+library(rpart.plot)
+
+
+variables_explicatives <- c("UNR_us", "IRCB", "UNR", "IRS", "SMA_5", "SMA_10", "SMA_20", "WMA_5", "WMA_10", "WMA_20")
+
+
+# Nous utilisons uniquement les lignes où IRCB_us n'est pas manquante pour entraîner l'arbre CART
+train_data <- close_df[!is.na(close_df$IRCB_us), c("IRCB_us", variables_explicatives)]
+tree_model <- rpart(IRCB_us ~ ., data = train_data, method = "anova")
+
+# Visualiser l'arbre de décision
+rpart.plot(tree_model)
+
+# Nous appliquons le modèle d'arbre de régression aux lignes où IRCB_us est manquante
+predict_missing <- predict(tree_model, newdata = close_df[is.na(close_df$IRCB_us), variables_explicatives])
+
+# 6. Remplaçons les valeurs manquantes par les prédictions
+close_df$IRCB_us[is.na(close_df$IRCB_us)] <- predict_missing
+
+
+# Visualiser la variable  après imputation
+par(mfrow = c(1, 2))
+hist(close_df$IRCB_us, main = "Après imputation (CART)", col = "lightgreen", xlab = "IRCB_us")
+
+```
+# Modélisation des closing index en utilisant le modèle prophet
+
+#### Le modèle prophet est-il adapté?
+
+Le modèle prophet étant un modèle additif (GAM), il est important de se demander au préalable si notre serie y est adaptée. Pour ce faire, nous allons procéder au test de bande 
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Créons une colonne "Year" à partir de la colonne "Date"
+close_df$Year <- format(close_df$Date, "%Y")
+
+# Créons un data frame qui contient les minimas et maximas annuels
+annual_min_max_df <- close_df %>%
+  group_by(Year) %>%
+  summarise(
+    Minima = min(Close, na.rm = TRUE),  
+    Maxima = max(Close, na.rm = TRUE)   
+  ) %>%
+  arrange(Year)  
+
+# Ajustons les droites pour les minimas et les maximas
+lm_min <- lm(Minima ~ as.numeric(Year), data = annual_min_max_df)
+lm_max <- lm(Maxima ~ as.numeric(Year), data = annual_min_max_df)
+
+
+annual_min_max_df$Minima_fit <- predict(lm_min, newdata = annual_min_max_df)
+annual_min_max_df$Maxima_fit <- predict(lm_max, newdata = annual_min_max_df)
+
+# Créons la visualisation
+ggplot(close_df, aes(x = Date, y = Close)) +  
+  geom_line(color = "blue") +  
+  geom_point(data = annual_min_max_df, aes(x = as.Date(paste(Year, "-01-01", sep = "")), y = Minima), color = "red", size = 2) +  
+  geom_point(data = annual_min_max_df, aes(x = as.Date(paste(Year, "-01-01", sep = "")), y = Maxima), color = "green", size = 2) + 
+  geom_line(data = annual_min_max_df, aes(x = as.Date(paste(Year, "-01-01", sep = "")), y = Minima_fit), color = "red", linetype = "dashed") +  
+  geom_line(data = annual_min_max_df, aes(x = as.Date(paste(Year, "-01-01", sep = "")), y = Maxima_fit), color = "green", linetype = "dashed") +  
+  labs(title = "Prix de Clôture avec les droites ajustées des minimas et maximas",
+       x = "Date", y = "Prix de Clôture") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+Visuellement, il semble que nos deux droites qui ajustent les minima et les maxima sur une période soient parallèles (et donc de même pente). 
+Verifions celà de maniere statistique.
+
+```{r}
+library(tidyr)  
+library(dplyr)  
+library(lmtest)  
+
+# Créons un facteur "Type" pour différencier les minimas et maximas
+annual_min_max_df_long <- annual_min_max_df %>%
+  pivot_longer(cols = c("Minima", "Maxima"), names_to = "Type", values_to = "Close")
+
+# Créons un modèle linéaire avec interaction entre Type et Year
+lm_combined <- lm(Close ~ as.numeric(Year) * Type, data = annual_min_max_df_long)
+
+summary(lm_combined)
+
+```
+Dans nos résultats, la p-value pour cette interaction  est 0.91, ce qui est supérieur à 0.05. On peut donc affirmer au risque de se tromper de 5% qu'il n'y a pas de différence significative entre les pentes des minimas et des maximas au fil du temps. En d'autres termes, minimas et les maximas des prix de cloture (pour une période p=12mois) suivent une tendance similaire au fil du temps.
+
+Cette conclusion nous permet de déduire que notre série temporelle peut être modélisée par un modèle additif en l'occurence ici un modèle prophet.
+
+```{r}
+### Data splitting
+
+```
+
+```{r}
+
+close_df$Date <- as.Date(close_df$Date)
+
+# les dates de séparation
+start_train <- as.Date("2000-01-01")
+end_train <- as.Date("2022-12-31")
+start_test <- as.Date("2023-01-01")
+end_test <- as.Date("2024-10-30")
+
+# Divisons le dataset en train et test selon les dates
+train <- close_df %>% 
+  filter(Date >= start_train & Date <= end_train)
+
+test <- close_df %>% 
+  filter(Date >= start_test & Date <= end_test)
+
+# Vérifier les dimensions des ensembles
+cat("Dimension de l'échantillon d'entraînement : ", dim(train), "\n")
+cat("Dimension de l'échantillon de test : ", dim(test), "\n")
+
+```
+
+### Modélisation
+
+## Definition d'évènements exceptionnels
+```{r}
+special_events <- data.frame(
+  ds = as.Date(c("2002-04-21", "2002-05-05", "2007-04-22", "2007-05-06",
+                 "2012-04-22", "2012-05-06", "2017-04-23", "2017-05-07",
+                 "2002-06-09", "2002-06-16", "2007-06-10", "2007-06-17",
+                 "2012-06-10", "2012-06-17", "2017-06-11", "2017-06-18",
+                 "2008-09-15", "2022-04-10", "2022-04-24", "2022-06-12", "2022-06-19")),
+  event = c("1er tour présidentielles 2002", "2e tour présidentielles 2002", 
+            "1er tour présidentielles 2007", "2e tour présidentielles 2007", 
+            "1er tour présidentielles 2012", "2e tour présidentielles 2012", 
+            "1er tour présidentielles 2017", "2e tour présidentielles 2017", 
+            "1er tour législatives 2002", "2e tour législatives 2002", 
+            "1er tour législatives 2007", "2e tour législatives 2007", 
+            "1er tour législatives 2012", "2e tour législatives 2012", 
+            "1er tour législatives 2017", "2e tour législatives 2017",
+            "Faillite de Lehman Brothers", 
+            "1er tour présidentielles 2022", "2e tour présidentielles 2022", 
+            "1er tour législatives 2022", "2e tour législatives 2022"))
+
+
+
+
+```
+
+
+```{r}
+library(prophet)
+library(dplyr)
+library(lubridate)
+library(timeDate)
+
+# Créer les événements spéciaux que tu as déjà préparés
+special_events_prophet <- special_events %>% 
+  mutate(
+    holiday = event,  # Nommer la colonne de l'événement
+    lower_window = -7,  # 1 jour avant l'événement
+    upper_window = 7    # 1 jour après l'événement
+  )
+
+# Récupérer les jours fériés pour les USA entre 2000 et 2022
+us_holidays <- timeDate::holidayNYSE(2000:2022)  # Jours fériés pour les USA
+
+# Convertir les jours fériés en format date
+us_holidays_df <- data.frame(
+  ds = as.Date(us_holidays),  # Convertir les jours fériés en Date
+  holiday = "US_Holiday"      # Nom des jours fériés
+)
+
+
+# Combiner les jours fériés et les événements spéciaux
+holidays_combined <- bind_rows(special_events_prophet, us_holidays_df)
+
+```
+#### On fit le modèle
+
+```{r}
+
+library(prophet)
+library(dplyr)
+library(ggplot2)
+library(Metrics)
+
+m <- prophet(
+  holidays = holidays_combined,
+  yearly.seasonality = TRUE,
+  weekly.seasonality = TRUE,
+  changepoint_prior_scale = 0.05,       # On Contrôle la flexibilité des tendances
+  seasonality_prior_scale = 10,        # On Contrôle la flexibilité de la saisonnalité
+  interval_width = 0.95
+  #holidays_prior_scale = 5             
+)
+
+#les variables exogènes
+m <- add_regressor(m, 'UNR_us')
+m <- add_regressor(m, 'CPI_us')
+m <- add_regressor(m, 'UNR')
+m <- add_regressor(m, 'GDP')
+m <- add_regressor(m, 'WMA_20')
+
+# les données d'entraînement
+train <- train %>% 
+  rename(ds = Date, y = Close) %>% 
+  select(ds, y, UNR_us, CPI_us, UNR,GDP,WMA_20)
+
+# Ajustons le modèle
+m <- fit.prophet(m, train)
+
+
+# Prédictions sur les données de test
+future <- test %>% 
+  rename(ds = Date) %>% 
+  select(ds, UNR_us, CPI_us, UNR,GDP,WMA_20)
+
+forecast <- predict(m, future)
+
+# Prédictions sur les données historiques
+forecast_train <- predict(m, train)
+```
+
+
+```{r}
+# Graphique des vraies valeurs du train avec les prédictions et les changepoints
+library(ggplot2)
+
+
+train_pred <- data.frame(ds = forecast_train$ds, yhat = forecast_train$yhat, y = train$y)
+
+# Traçons les vraies valeurs vs les prévisions avec les changepoints
+ggplot(train_pred, aes(x = ds)) +
+  geom_line(aes(y = y), color = "blue") + # Valeurs réelles en bleu
+  geom_line(aes(y = yhat), color = "red") + # Valeurs prédites en rouge
+  geom_vline(xintercept = as.numeric(m$changepoints), linetype = "dashed", color = "green") + # Changepoints en vert
+  labs(title = "Vraies valeurs vs Prédictions (Train) avec Changepoints", 
+       x = "Date", y = "Prix de fermeture") +
+  theme_minimal()
+```
+
+
+```{r}
+#  Graphique des vraies valeurs du test comparées aux valeurs prédites
+test_pred <- data.frame(ds = forecast$ds, yhat = forecast$yhat, y = test$Close)
+
+# Traçonsr les vraies valeurs vs les prévisions sur les données de test
+ggplot(test_pred, aes(x = ds)) +
+  geom_line(aes(y = y), color = "blue") + # Valeurs réelles en bleu
+  geom_line(aes(y = yhat), color = "red") + # Valeurs prédites en rouge
+  labs(title = "Actual values vs Prédictions (Test)", 
+       x = "Date", y = "Closing indices") +
+  theme_minimal()
+```
+```{r}
+# Graphique avec intervalles de confiance pour le jeu de test
+ggplot(test_pred, aes(x = ds)) +
+  geom_line(aes(y = y), color = "blue", size = 1) +  # Valeurs réelles
+  geom_line(aes(y = yhat), color = "red", size = 1) +  # Prédictions
+  geom_ribbon(aes(ymin = forecast$yhat_lower, ymax = forecast$yhat_upper), 
+              fill = "grey70", alpha = 0.4) +  # Intervalle de confiance
+  labs(title = "Prédictions avec intervalles de confiance (Test)",
+       x = "Date", y = "Prix de fermeture") +
+  theme_minimal()
+```
+
+
+```{r}
+# 3. Graphiques des composantes du modèle (tendance, saisonnalité, effets des jours fériés)
+prophet_plot_components(m, forecast_train)
+
+```
+```{r}
+# Affichons les composantes du modèle, y compris la période prédite
+prophet_plot_components(m, forecast)
+
+
+```
+
+
+```{r}
+# . Calcul des statistiques de performance
+mse <- mean((forecast$yhat - test$Close)^2)
+rmse <- sqrt(mean((forecast$yhat - test$Close)^2))
+mae <- mean(abs(forecast$yhat - test$Close))
+r_squared <- 1 - sum((forecast$yhat - test$Close)^2) / sum((test$Close - mean(test$Close))^2)
+mase <- mean(abs(forecast$yhat - test$Close)) / mean(abs(diff(test$Close)))
+
+cat("MSE:", mse, "\n")
+cat("RMSE:", rmse, "\n")
+cat("MAE:", mae, "\n")
+cat("R²:", r_squared, "\n")
+cat("MASE:", mase, "\n")
+
+```
+
+```{r}
+# Calculons des statistiques de performance pour l'échantillon d'entraînement
+mse_train <- mean((forecast_train$yhat - train$y)^2)  # Mean Squared Error
+rmse_train <- sqrt(mean((forecast_train$yhat - train$y)^2))  # Root Mean Squared Error
+mae_train <- mean(abs(forecast_train$yhat - train$y))  # Mean Absolute Error
+r_squared_train <- 1 - sum((forecast_train$yhat - train$y)^2) / sum((train$y - mean(train$y))^2)  # R²
+mase_train <- mean(abs(forecast_train$yhat - train$y)) / mean(abs(diff(train$y)))  # Mean Absolute Scaled Error
+
+# Affichage des résultats pour l'échantillon d'entraînement
+cat("Performance sur les données d'entraînement:\n")
+cat("MSE (Train):", mse_train, "\n")
+cat("RMSE (Train):", rmse_train, "\n")
+cat("MAE (Train):", mae_train, "\n")
+cat("R² (Train):", r_squared_train, "\n")
+cat("MASE (Train):", mase_train, "\n")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Étape 6 : Statistiques de performance
+# Calculer les statistiques pour l'horizon de test
+actual <- test$Close
+predicted <- forecast$yhat
+
+# Calcul du RMSE, MAE, et MAPE
+rmse_value <- sqrt(mean((actual - predicted)^2))
+mae_value <- mean(abs(actual - predicted))
+mape_value <- mean(abs((actual - predicted) / actual)) * 100
+
+cat("Root Mean Squared Error (RMSE) : ", rmse_value, "\n")
+cat("Mean Absolute Error (MAE) : ", mae_value, "\n")
+cat("Mean Absolute Percentage Error (MAPE) : ", mape_value, "%\n")
+```
+
+
+```{r}
+# Étape 7 : Afficher les coefficients des variables exogènes
+cat("Coefficients des variables exogènes :\n")
+print(m$extra_regressors)
+```
+
+
+
+```{r}
+# Extraire les coefficients des régresseurs
+coefficients <- prophet::regressor_coefficients(m)
+
+# Afficher les coefficients
+print(coefficients)
+
+```
+```{r}
+library(ggplot2)
+
+# Tracer une contribution individuelle
+ggplot(forecast, aes(x = ds, y = GDP)) +
+  geom_line(color = 'blue') +
+  labs(title = 'Contribution de UNR_us',
+       x = 'Date', y = 'Contribution (unités)')
+
+```
+```{r}
+forecast$extra_regressors_contrib <- rowSums(forecast[, c('UNR_us', 'CPI_us', 'UNR', 'GDP', 'WMA_20')])* 100 / forecast$trend 
+
+ggplot(forecast, aes(x = ds, y = extra_regressors_contrib)) +
+  geom_line(color = 'purple') +
+  labs(title = 'Contribution combinée des régressions exogènes (en % de la tendance)',
+       x = 'Date', y = 'Contribution (%)') +
+  geom_hline(yintercept = 0, linetype = 'dashed')
+
+```
+
+```{r}
+library(ggplot2)
+
+# Tracer la tendance
+ggplot(forecast_train, aes(x = ds, y = trend)) +
+  geom_line(color = 'blue', size = 1) +
+  labs(title = 'Composante de tendance prédite',
+       x = 'Date',
+       y = 'Valeur de la tendance') +
+  theme_minimal()
+
+
+```
+```{r}
+# Graphique avec intervalles de confiance pour le jeu de test
+ggplot(test_pred, aes(x = ds)) +
+  geom_line(aes(y = y), color = "blue", size = 1) +  # Valeurs réelles
+  geom_line(aes(y = yhat), color = "red", size = 1) +  # Prédictions
+  geom_ribbon(aes(ymin = forecast$yhat_lower, ymax = forecast$yhat_upper), 
+              fill = "grey70", alpha = 0.4) +  # Intervalle de confiance
+  labs(title = "Prédictions avec intervalles de confiance (Test)",
+       x = "Date", y = "Prix de fermeture") +
+  theme_minimal()
+
+```
+
