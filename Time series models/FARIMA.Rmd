@@ -25,7 +25,7 @@ library(tidyverse)
 # Importation des données
 
 ```{r}
-data= read.csv("D:/Cours/S1_3A/Projet Séries temp_avancée/TS_project/TSprojects/final_database.csv")
+data= read.csv("../data/output/final_database.csv")
 ```
 
 
