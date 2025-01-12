@@ -1,0 +1,226 @@
+---
+title: "TS_project"
+author: "mariyam OUYASSIN"
+date: "2024-11-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# libraries
+```{r}
+library(quantmod)
+library(evd)
+library(tseries)
+
+library(rugarch)
+library(tidyverse)
+
+```
+
+
+# Importation des données
+
+```{r}
+data= read.csv("D:/Cours/S1_3A/Projet Séries temp_avancée/TS_project/TSprojects/final_database.csv")
+```
+
+
+
+## NA
+```{r}
+# Vérifier les valeurs manquantes pour chaque colonne
+
+missing_values <- sapply(data, function(x) sum(is.na(x)))
+
+# Afficher le nombre de valeurs manquantes par colonne
+print(missing_values)
+```
+
+Il n'y a pas de valeurs manquantes.
+
+
+
+```{r}
+colnames(data)
+```
+
+
+
+
+
+# Stationnarité du Return
+
+
+```{r}
+(adf_test <- adf.test(data$Return))
+```
+la série des logrendement est stationnaire.
+
+
+
+
+# split data
+
+
+```{r}
+# Convertir la colonne DATE en objet Date
+data$Date <- as.Date(data$Date)  # Convertir en objet Date si ce n'est pas déjà fait
+
+# Définir les dates de coupure
+train_start <- as.Date("2000-01-01")
+train_end <- as.Date("2023-01-01")
+test_start <- as.Date("2023-01-01")
+test_end <- as.Date("2024-10-30")
+
+# Filtrer les données pour l'ensemble d'entraînement (train)
+Dtrain <- data[data$Date >= train_start & data$Date < train_end, ]
+
+# Filtrer les données pour l'ensemble de test (test)
+Dtest <- data[data$Date >= test_start & data$Date <= test_end, ]
+
+# Vérifier les dimensions des ensembles
+print(paste("Nombre d'observations dans Dtrain :", nrow(Dtrain)))
+print(paste("Nombre d'observations dans Dtest :", nrow(Dtest)))
+
+```
+
+
+
+
+
+# FARIMA: 
+
+## Test of Short Memory
+### ACF
+
+```{r}
+# Calculer l'autocorrélation
+acf(data$Return, nlags=40)
+
+```
+On a une décroissance rapide ce qui implique un processus à mémoire courte.
+
+
+
+### Exposoant de Hurst 
+
+```{r}
+library(pracma)
+hurstexp(data$Return)  # Si > 0.5, mémoire longue possible
+```
+Les estimations sont proches de 0,50,5, certaines méthodes suggérant une légère tendance à une mémoire longue (H>0,5H>0,5), tandis que d'autres indiquent une absence de mémoire (H≈0,5H≈0,5). Dans l'ensemble, ces résultats suggèrent que la série présente une  faible ou aucune mémoire longue significative, ce qui est cohérent avec les conclusions tirées de l'ACF et du paramètre de différenciation fractionnaire dd.
+
+
+### fracdiff
+estimer le d par la méthode de Maximum de vraisemblace
+```{r}
+library(fracdiff)
+# Estimation du paramètre d
+fd_result <- fracdiff(data$Return)
+print(fd_result)
+```
+
+
+`
+
+
+
+## confirmation de d=0
+```{r}
+library(fracdiff)
+
+# Fonction pour tester différentes combinaisons de p et q
+find_best_farima <- function(data, p_max = 5, q_max = 5, alpha = 0.05) {
+  best_aic <- Inf
+  best_model <- NULL
+  best_orders <- c(0, 0)
+  best_residuals <- NULL
+
+  for (p in 0:p_max) {
+    for (q in 0:q_max) {
+      if (p == 0 && q == 0) next  # Ignorer le modèle sans AR ni MA
+
+      # Ajuster le modèle FARIMA
+      model <- fracdiff(data, nar = p, nma = q)
+
+      # Calculer l'AIC
+      aic <- -2 * model$log.likelihood + 2 * (p + q + 1)
+
+      # Extraire les résidus
+      residuals <- residuals(model)
+
+      # Tester la blancheur des résidus avec le test de Ljung-Box
+      ljung_box_test <- Box.test(residuals, lag = 10, type = "Ljung-Box")
+      p_value <- ljung_box_test$p.value
+
+      # Vérifier si les résidus sont un bruit blanc (p-value > alpha)
+      if (p_value > alpha && aic < best_aic) {
+        best_aic <- aic
+        best_model <- model
+        best_orders <- c(p, q)
+        best_residuals <- residuals
+      }
+    }
+  }
+
+  # Retourner le meilleur modèle, les ordres, l'AIC et les résidus
+  return(list(model = best_model, orders = best_orders, aic = best_aic, residuals = best_residuals))
+}
+
+# Trouver le meilleur modèle FARIMA
+best_farima <- find_best_farima(Dtrain$Return)
+
+# Afficher les résultats
+print(paste("Meilleur modèle FARIMA : p =", best_farima$orders[1], ", q =", best_farima$orders[2]))
+print(paste("AIC du meilleur modèle :", best_farima$aic))
+
+# Résumé du meilleur modèle
+summary(best_farima$model)
+
+# Vérifier les résidus
+if (!is.null(best_farima$residuals)) {
+  print("Les résidus du meilleur modèle sont un bruit blanc.")
+} else {
+  print("Aucun modèle valide trouvé (les résidus ne sont pas un bruit blanc).")
+}
+
+
+```
+
+
+
+
+meilleur modèle est ARMA(2,5)
+
+
+
+
+
+
+
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
