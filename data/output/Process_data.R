@@ -2,6 +2,7 @@
 
 # LOAD LIBRAIRES
 library(dplyr)
+library(TTR)
 
 # LOAD DATA
 
@@ -40,3 +41,5 @@ rm(list=c("macro_var", "CAC_40"))
 
 # to csv
 write.csv(data, "data/output/final_database.csv", row.names = FALSE)
+
+
