@@ -404,65 +404,10 @@ cat("MASE (Train):", mase_train, "\n")
 
 ```
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+### On s'intéresse à l'effet des variables exogènes
 
 ```{r}
-# Étape 6 : Statistiques de performance
-# Calculer les statistiques pour l'horizon de test
-actual <- test$Close
-predicted <- forecast$yhat
-
-# Calcul du RMSE, MAE, et MAPE
-rmse_value <- sqrt(mean((actual - predicted)^2))
-mae_value <- mean(abs(actual - predicted))
-mape_value <- mean(abs((actual - predicted) / actual)) * 100
-
-cat("Root Mean Squared Error (RMSE) : ", rmse_value, "\n")
-cat("Mean Absolute Error (MAE) : ", mae_value, "\n")
-cat("Mean Absolute Percentage Error (MAPE) : ", mape_value, "%\n")
-```
-
-
-```{r}
-# Étape 7 : Afficher les coefficients des variables exogènes
+#  Affichons les coefficients des variables exogènes
 cat("Coefficients des variables exogènes :\n")
 print(m$extra_regressors)
 ```
@@ -470,24 +415,43 @@ print(m$extra_regressors)
 
 
 ```{r}
-# Extraire les coefficients des régresseurs
+# Extrayons les coefficients des régresseurs
 coefficients <- prophet::regressor_coefficients(m)
 
-# Afficher les coefficients
+
 print(coefficients)
 
 ```
+
+
+Le GDP et le WMA_20 sont les regresseurs exogènes dont l'effet est le plus prononcé sur la variable d'intérêt
+
 ```{r}
 library(ggplot2)
 
-# Tracer une contribution individuelle
+# Tracons  la contribution individuelle du GDP
 ggplot(forecast, aes(x = ds, y = GDP)) +
   geom_line(color = 'blue') +
-  labs(title = 'Contribution de UNR_us',
+  labs(title = 'Contribution de GDP',
        x = 'Date', y = 'Contribution (unités)')
 
 ```
+
 ```{r}
+library(ggplot2)
+
+# Tracons contribution individuelle de WMA_20
+ggplot(forecast, aes(x = ds, y = WMA_20)) +
+  geom_line(color = 'blue') +
+  labs(title = 'Contribution de WMA_20',
+       x = 'Date', y = 'Contribution (unités)')
+
+```
+
+
+
+```{r}
+## On s'interesse à la contribution combinée de tous les regresseurs exogènes relativement à celle de la tendance
 forecast$extra_regressors_contrib <- rowSums(forecast[, c('UNR_us', 'CPI_us', 'UNR', 'GDP', 'WMA_20')])* 100 / forecast$trend 
 
 ggplot(forecast, aes(x = ds, y = extra_regressors_contrib)) +
@@ -498,10 +462,12 @@ ggplot(forecast, aes(x = ds, y = extra_regressors_contrib)) +
 
 ```
 
+
+
 ```{r}
 library(ggplot2)
 
-# Tracer la tendance
+# Traçons la tendance
 ggplot(forecast_train, aes(x = ds, y = trend)) +
   geom_line(color = 'blue', size = 1) +
   labs(title = 'Composante de tendance prédite',
@@ -511,16 +477,5 @@ ggplot(forecast_train, aes(x = ds, y = trend)) +
 
 
 ```
-```{r}
-# Graphique avec intervalles de confiance pour le jeu de test
-ggplot(test_pred, aes(x = ds)) +
-  geom_line(aes(y = y), color = "blue", size = 1) +  # Valeurs réelles
-  geom_line(aes(y = yhat), color = "red", size = 1) +  # Prédictions
-  geom_ribbon(aes(ymin = forecast$yhat_lower, ymax = forecast$yhat_upper), 
-              fill = "grey70", alpha = 0.4) +  # Intervalle de confiance
-  labs(title = "Prédictions avec intervalles de confiance (Test)",
-       x = "Date", y = "Prix de fermeture") +
-  theme_minimal()
-
-```
+`
 
