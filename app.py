@@ -15,6 +15,7 @@ import streamlit as st
 from sklearn.linear_model import RidgeCV
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 import shap
+from arch import arch_model
 
 scaler = StandardScaler()
 
@@ -32,6 +33,7 @@ def main():
         dataframe()
     elif option == 'Training':
         training()
+        garch_model()
     elif option == 'Predict':
         st.header('To be done')
         # predict()
@@ -334,7 +336,7 @@ def dataframe():
     technical_columns = ["MACD", "RSI", "SMA_5", "SMA_10", "SMA_20", "WMA_5", "WMA_10", "WMA_20", "Close_minus_Open", "High_minus_Low", "CCI", "Momentum", "Stochastic_K", "Stochastic_D", "Williams_R"]
     eco_columns = ["GDPV", "IRL", "IRS", "GDP", "CPIH_YTYPCT", "IRCB", "UNR", "YPH", "UNR_us", "IRCB_us", "CPI_us"]
 
-    st.sidebar.write("Select variables to display")
+    st.write("Select variables to display")
 
     # Sidebar multiselect for each category
     selected_cac_40 = st.multiselect("CAC 40 Price Variables", cac_40_columns, default=cac_40_columns)
@@ -349,25 +351,9 @@ def dataframe():
 
 
 
+########## SECTION TRAINING ####################
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-########## TRAINING
-
-def run_model(pred_df, real_df, n_train, n_test):
+def plot_predictions(pred_df, real_df, n_train, n_test):
     """
     Visualizes predicted and actual prices with separate colors for training and testing data.
 
@@ -558,6 +544,9 @@ summary_table = {
 
 summary_table = pd.DataFrame(summary_table)
 
+residuals_train = y_train_pred - y_train
+residuals_test = y_test_pred - y_test
+
 def training():
     st.subheader('Train - Test Split')
 
@@ -580,14 +569,14 @@ def training():
     real_values = final_df["Close"]
     real_values.index = final_df["Date"]
 
-    run_model(predictions, real_values, n_train=len(y_train), n_test=len(y_test))
+    plot_predictions(predictions, real_values, n_train=len(y_train), n_test=len(y_test))
 
-    st.write('Ridge regression model performance : ')
+    st.subheader('Ridge regression model performance : ')
 
     st.write(f"Optimal regularization strength ($\lambda$): {optimal_alpha}")
     st.dataframe(summary_table)
 
-    st.subheader('Feature Importance')
+    st.subheader('Features importances (using shap values)')
 
     # Explain the model predictions using SHAP Linear Explainer
     explainer = shap.Explainer(ridge_cv, X_train)  # SHAP Linear Explainer
@@ -599,7 +588,6 @@ def training():
         "Mean SHAP Value": np.abs(shap_values.values).mean(axis=0)
     }).sort_values(by="Mean SHAP Value", ascending=True)
 
-    # Create a Plotly bar chart
     fig = px.bar(
         shap_df, 
         x="Mean SHAP Value", 
@@ -610,6 +598,77 @@ def training():
     )
 
     # Display the Plotly chart in Streamlit
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def garch_model():
+    """
+    GARCH model analysis and visualization using Plotly.
+
+    Parameters:
+    - residuals_train: np.array, residuals of training data
+    - residuals_test: np.array, residuals of testing data
+    - y_train_pred: np.array, predicted values for training set
+    - y_train: pd.Series, actual values for training set
+    - y_test_pred: np.array, predicted values for testing set
+    - y_test: pd.Series, actual values for testing set
+    - final_df: pd.DataFrame, data containing the Date column
+
+    Returns:
+    - None
+    """
+    st.subheader('GARCH model on the residuals of ridge regression')
+
+    # Combine residuals
+    residuals_combined = np.concatenate([residuals_train, residuals_test])
+    residuals = pd.DataFrame({'residuals': residuals_combined})
+    residuals["Date"] = final_df["Date"]
+
+    # Fit GARCH model to residuals
+    garch_model_t = arch_model(residuals['residuals'].values, vol='Garch', p=1, q=1, dist='t')
+    garch_fit_t = garch_model_t.fit(disp="off", last_obs=len(residuals_train), first_obs=0)
+
+    # Forecast volatility for the test set
+    forecast = garch_fit_t.forecast(horizon=len(residuals_test), reindex=False)
+    forecast_volatility = np.sqrt(forecast.variance.values[-len(residuals_test):, 0])
+
+    # Compute training and forecasted volatility
+    vol_train = pd.Series(garch_fit_t.conditional_volatility).dropna()
+    vol_forecast = pd.Series(forecast_volatility).dropna()
+    volatility = pd.concat([vol_train, vol_forecast]).dropna()
+    volatility.index = residuals["Date"]
+
+    # Plot residuals and volatility using Plotly
+    fig = go.Figure()
+
+    # Add residuals
+    fig.add_trace(go.Scatter(
+        x=residuals["Date"], 
+        y=residuals["residuals"], 
+        mode='lines',
+        name='Residuals',
+        line=dict(color='black', width=2)
+    ))
+
+    # Add volatility
+    fig.add_trace(go.Scatter(
+        x=residuals["Date"], 
+        y=volatility, 
+        mode='lines',
+        name='Volatility',
+        line=dict(color='red', width=2, dash='dash')
+    ))
+
+    # Customize layout
+    fig.update_layout(
+        title='Residuals and Volatility (GARCH Model)',
+        xaxis_title='Date',
+        yaxis_title='Values',
+        legend=dict(title="Legend"),
+        template="plotly_white"
+    )
+
+    # Display plot
     st.plotly_chart(fig, use_container_width=True)
 
 ######## PREDICT
@@ -743,102 +802,6 @@ def training():
 #             engine = XGBRegressor()
 #             model_engine(engine, num)
 
-
-
-
-########## TRAINING
-
-
-# def see_train_test_split(X_train, y_train, X_test, y_test, feature_cols):
-#     # Create train and test datasets
-#     train_df = dataset_to_df(X_train, y_train, feature_cols)
-#     test_df = dataset_to_df(X_test, y_test, feature_cols)
-    
-#     # Create interactive Plotly figure
-#     fig = go.Figure()
-
-#     # Add train data
-#     fig.add_trace(
-#         go.Scatter(
-#             x=train_df['Date'], 
-#             y=train_df['Close'], 
-#             mode='lines', 
-#             name='Train',
-#             line=dict(width=2, color='blue')
-#         )
-#     )
-
-#     # Add test data
-#     fig.add_trace(
-#         go.Scatter(
-#             x=test_df['Date'], 
-#             y=test_df['Close'], 
-#             mode='lines', 
-#             name='Test',
-#             line=dict(width=2, color='red', dash='dash')  # Dashed line for test data
-#         )
-#     )
-
-#     # Customize layout
-#     fig.update_layout(
-#         title={
-#             'text': 'Closing Price',
-#             'y': 0.9,
-#             'x': 0.5,
-#             'xanchor': 'center',
-#             'yanchor': 'top',
-#             'font': dict(size=20, family="Arial")
-#         },
-#         xaxis=dict(
-#             title='Date',
-#             titlefont=dict(size=16),
-#             tickfont=dict(size=12),
-#         ),
-#         yaxis=dict(
-#             title='Price',
-#             titlefont=dict(size=16),
-#             tickfont=dict(size=12),
-#         ),
-#         legend=dict(
-#             font=dict(size=14),
-#             x=0.02, y=0.98,  # Legend position
-#         ),
-#         template='plotly_white'  # Clean theme
-#     )
-
-#     # Display the plot in Streamlit
-#     st.plotly_chart(fig, use_container_width=True)
-
-# def model_engine(model, num):
-#     # getting only the closing price
-#     df = data[['Close']]
-#     # shifting the closing price based on number of days forecast
-#     df['preds'] = data.Close.shift(-num)
-#     # scaling the data
-#     x = df.drop(['preds'], axis=1).values
-#     x = scaler.fit_transform(x)
-#     # storing the last num_days data
-#     x_forecast = x[-num:]
-#     # selecting the required values for training
-#     x = x[:-num]
-#     # getting the preds column
-#     y = df.preds.values
-#     # selecting the required values for training
-#     y = y[:-num]
-
-#     #spliting the data
-#     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=.2, random_state=7)
-#     # training the model
-#     model.fit(x_train, y_train)
-#     preds = model.predict(x_test)
-#     st.text(f'r2_score: {r2_score(y_test, preds)} \
-#             \nMAE: {mean_absolute_error(y_test, preds)}')
-#     # predicting stock price based on the number of days
-#     forecast_pred = model.predict(x_forecast)
-#     day = 1
-#     for i in forecast_pred:
-#         st.text(f'Day {day}: {i}')
-#         day += 1
 
 
 
