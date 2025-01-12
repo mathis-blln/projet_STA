@@ -20,8 +20,6 @@ from arch import arch_model
 scaler = StandardScaler()
 
 
-
-
 st.title('Stock Price Predictions of CAC 40')
 st.sidebar.info('Welcome to the Stock Price Prediction App. Choose your options below')
 
@@ -35,8 +33,7 @@ def main():
         training()
         garch_model()
     elif option == 'Predict':
-        st.header('To be done')
-        # predict()
+        predict()
 
 
 
@@ -494,7 +491,7 @@ feature_cols = [
 ]
 
 # Select only the columns in `feature_cols` for features
-X = final_df[feature_cols].dropna()
+X = final_df[feature_cols].copy()
 
 # Define the target variable
 y = final_df['Close'].copy()
@@ -671,139 +668,150 @@ def garch_model():
     # Display plot
     st.plotly_chart(fig, use_container_width=True)
 
-######## PREDICT
-# def forecast_future(
-#     model, historical_data, eco_data_future, feature_cols, lag=60, forecast_days=30
-# ):
-#     """
-#     Forecast future values using the trained model and future eco_data.
 
-#     Args:
-#         model: Trained model for forecasting.
-#         historical_data: DataFrame containing historical data (2000-2024).
-#         eco_data_future: DataFrame containing eco_data for forecasting (2024-2026).
-#         feature_cols: List of feature columns used in the model.
-#         lag: Number of lag days to consider for features.
-#         forecast_days: Number of future days to forecast.
+################# FORECAST ####################
+@st.cache_resource
+def prepare_forecast_data(option, start_forecast, end_date):
+    """
+    Prepares forecast data by merging and filtering datasets, dropping rows where CAC close prices are NA.
 
-#     Returns:
-#         forecast_df: DataFrame with forecasted values.
-#     """
-#     # Ensure data is in chronological order
-#     historical_data = historical_data.sort_values("Date")
-#     eco_data_future = eco_data_future.sort_values("Date")
+    Parameters:
+    - option: str, the stock or index to download
+    - start_forecast: datetime.date, start date for forecast data
+    - end_date: datetime.date, end date for forecast data
 
-#     # Combine historical and future data
-#     combined_data = pd.concat([historical_data, eco_data_future], ignore_index=True)
+    Returns:
+    - pd.DataFrame, processed forecast data
+    """
+    # Download and merge data
+    new_data_forecast = download_data(option, start_forecast, end_date)
 
-#     # Prepare for iterative forecasting
-#     forecast_results = []
-#     for day in range(forecast_days):
-#         # Extract the latest lag features
-#         lag_features = combined_data.iloc[-lag:, :][feature_cols].values
-#         lag_features = scaler.transform(lag_features)
-#         lag_features = lag_features.flatten().reshape(1, -1)
+    # Add one more trading day to forecast data t+1 data
+    next_trading_day = end_date #+ timedelta(days=1)
+    while next_trading_day.weekday() in [5, 6]:  # Skip weekends
+        next_trading_day += timedelta(days=1)
 
-#         # Predict the next day's value
-#         predicted_close = model.predict(lag_features)[0]
+    # get close price of the next trading day if availabe
+    stock_data = yf.Ticker(option).history(start=next_trading_day, end=next_trading_day + pd.Timedelta(days=1))
 
-#         # Append prediction
-#         next_date = combined_data.iloc[-1]["Date"] + pd.Timedelta(days=1)
-#         forecast_results.append({"Date": next_date, "Close": predicted_close})
+    niveau_row = {
+        "Date": pd.Timestamp(next_trading_day),
+        "Close": stock_data["Close"].values[0] if not stock_data["Close"].empty else 0,
+        "High": stock_data["High"].values[0] if not stock_data["High"].empty else 0,
+        "Low": stock_data["Low"].values[0] if not stock_data["Low"].empty else 0,
+        "Open": stock_data["Open"].values[0] if not stock_data["Open"].empty else 0,
+        "Volume": stock_data["Volume"].values[0] if not stock_data["Volume"].empty else 0
+    }
 
-#         # Add the prediction back to the data for the next iteration
-#         new_row = combined_data.iloc[-1].copy()
-#         new_row["Date"] = next_date
-#         new_row["Close"] = predicted_close
-#         combined_data = combined_data.append(new_row, ignore_index=True)
+    new_data_forecast = pd.concat([new_data_forecast, pd.DataFrame([niveau_row])], ignore_index=True)
 
-#     # Convert results to DataFrame
-#     forecast_df = pd.DataFrame(forecast_results)
-#     return forecast_df
+    # Download economic data for forecast period (exclude weekends days on economic data)
+    eco_data_forecast = download_eco_data(start_forecast, next_trading_day)
+    eco_data_forecast = eco_data_forecast[eco_data_forecast['Date'].dt.weekday < 5]
 
-# def predict():
-#     st.header("Forecast Future Prices")
-#     start = datetime.date(2000, 1, 1)
-#     end = datetime.date(2024, 10, 30)
+    # Merge datasets
+    data_forecast = pd.merge(new_data_forecast, eco_data_forecast, on="Date", how="right")
 
-#     # Prepare data
-#     historical_data = download_data(option, start_date=start, end_date=end)
-#     historical_data = add_indicators(historical_data)
+    # Drop rows where CAC close prices are NA (eg. french holidays)
+    data_forecast = data_forecast.dropna(subset=['Close'])
 
-#     eco_data_future = download_eco_data(start_date=datetime.date(2024, 11, 1), end_date=datetime.date(2026, 1, 1))
-#     eco_data_future = eco_data_future.merge(historical_data, on="Date", how="left")
+    # Reset to na for the next trading day if values is empty
+    data_forecast.loc[data_forecast['Close']==0, 'Close'] = np.nan
 
-#     st.write("Training the model on historical data (2000-2024)...")
-#     (X_train, y_train), (X_test, y_test) = create_dataset(historical_data, feature_cols)
+    # Add indicators 
+    data_forecast = add_indicators(data_forecast, shift_values=True)
 
-#     # Select model
-#     model_option = st.selectbox("Choose a model", ["RidgeRegression", "XGB", "SVM"])
-#     if model_option == "RidgeRegression":
-#         model = Ridge()
-#     elif model_option == "XGB":
-#         model = XGBRegressor()
-#     elif model_option == "SVM":
-#         model = SVR()
+    # Ensure 'Date' is properly set as index
+    data_forecast['Date'] = pd.to_datetime(data_forecast['Date'])
+    data_forecast.index = data_forecast['Date']
 
-#     # Train model
-#     model.fit(X_train, y_train)
-#     st.success("Model trained successfully!")
+    return data_forecast
 
-#     # Forecast future prices
-#     forecast_days = st.number_input("Days to forecast:", value=30, min_value=1, max_value=365)
-#     forecast_df = forecast_future(model, historical_data, eco_data_future, feature_cols, forecast_days=forecast_days)
+def predict():
 
-#     # Plot results
-#     fig = go.Figure()
+    end_forecast = date.today()
+    while end_forecast.weekday() in [5, 6]:  # Skip weekends
+        end_forecast += timedelta(days=1)
 
-#     # Historical data
-#     fig.add_trace(
-#         go.Scatter(
-#             x=historical_data["Date"], y=historical_data["Close"],
-#             mode="lines", name="Historical Prices"
-#         )
-#     )
+    selected_dates = st.slider(
+        "Select Date Range:",
+        min_value=date(2023, 1, 1),
+        max_value=end_forecast,
+        value=(date(2024, 10, 30), end_forecast),  # Default selection
+        format="YYYY-MM-DD"
+    )
 
-#     # Forecasted data
-#     fig.add_trace(
-#         go.Scatter(
-#             x=forecast_df["Date"], y=forecast_df["Close"],
-#             mode="lines", name="Forecasted Prices"
-#         )
-#     )
+    # Extract the start and end dates from the slider
+    start_zoom, end_zoom = selected_dates
 
-#     fig.update_layout(
-#         title="Stock Price Forecast",
-#         xaxis_title="Date",
-#         yaxis_title="Close Price",
-#         template="plotly_white"
-#     )
-#     st.plotly_chart(fig)
+    start_FL = date(2000, 1, 1)
+    data_FL = prepare_forecast_data(option, start_FL, end_zoom)
+
+    # Set the last close as NaN if index date equals today + 1
+    next_trading_day = date.today() #+ timedelta(days=1)
+    while next_trading_day.weekday() in [5, 6]:  # Skip weekends
+        next_trading_day += timedelta(days=1)
+
+    # Select only the columns in `feature_cols` for features
+    X_FL = data_FL[feature_cols].copy()
+
+    # Define the target  variable
+    y_FL = data_FL['Close'].copy()
+
+    year_FL = data_FL['Date'].dt.year
+
+    X_test_FL = scaler.transform(X_FL[year_FL >= 2023])
+    y_test_FL = y_FL[year_FL >= 2023]
+    y_index = y_FL[year_FL >= 2023].index
+    y_test_FL_pred = ridge_cv.predict(X_test_FL)
 
 
-# def predict():
-#     model = st.radio('Choose a model', ['LinearRegression', 'RandomForestRegressor', 'ExtraTreesRegressor', 'KNeighborsRegressor', 'XGBoostRegressor'])
-#     num = st.number_input('How many days forecast?', value=5)
-#     num = int(num)
-#     if st.button('Predict'):
-#         if model == 'LinearRegression':
-#             engine = LinearRegression()
-#             model_engine(engine, num)
-#         elif model == 'RandomForestRegressor':
-#             engine = RandomForestRegressor()
-#             model_engine(engine, num)
-#         elif model == 'ExtraTreesRegressor':
-#             engine = ExtraTreesRegressor()
-#             model_engine(engine, num)
-#         elif model == 'KNeighborsRegressor':
-#             engine = KNeighborsRegressor()
-#             model_engine(engine, num)
-#         else:
-#             engine = XGBRegressor()
-#             model_engine(engine, num)
+    # Display the last 5 rows of the forecast data
+    st.write("Forecast Data")
 
+    results_df = pd.DataFrame({
+        "Actual Prices": y_test_FL, 
+        "Forecasted Prices": y_test_FL_pred
+    }, index=y_index) 
 
+    # Display the last few rows of the combined DataFrame
+    st.dataframe(results_df.tail(5).sort_index(ascending=False), use_container_width=True, hide_index=False)
 
+    # Filter data based on the selected date range
+    filtered_results = results_df.loc[start_zoom:end_zoom]
+
+    # Plot forecasted vs actual prices using Plotly
+    fig = go.Figure()
+
+    # Add actual prices
+    fig.add_trace(go.Scatter(
+        x=filtered_results.index,  # Dates
+        y=filtered_results["Actual Prices"],
+        mode='lines',
+        name='Actual Prices',
+        line=dict(color='blue')
+    ))
+
+    # Add forecasted prices
+    fig.add_trace(go.Scatter(
+        x=filtered_results.index,  # Dates
+        y=filtered_results["Forecasted Prices"],
+        mode='lines',
+        name='Forecasted Prices',
+        line=dict(color='red', dash='dot')
+    ))
+
+    # Customize layout
+    fig.update_layout(
+        title="Forecasted vs Actual Prices",
+        xaxis_title="Date",
+        yaxis_title="Close Price",
+        legend=dict(title="Legend"),
+        template="plotly_white"
+    )
+
+    # Display the plot in Streamlit
+    st.plotly_chart(fig, use_container_width=True)
 
 
 if __name__ == '__main__':
