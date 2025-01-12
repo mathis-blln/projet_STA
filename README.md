@@ -74,9 +74,10 @@ For this purpose, we created a Streamlit application.
 ```{bash}
 git clone git@github.com:mathis-blln/projet_STA.git
 ```
-2. Navigate to the project
+2. Navigate to the project (on python and R)
 ```{bash}
-cd projet_STA
+cd projet_STA # for python
+setwd("~/projet_STA") # for R
 ```
 3. Install the required Python packages using pip:
 ```{bash}
