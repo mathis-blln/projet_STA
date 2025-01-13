@@ -329,7 +329,7 @@ def dataframe():
     st.header('Recent Data')
 
     # Define variable categories
-    cac_40_columns = ["Close", "High", "Low", "Open", "Volume", "Return"]
+    cac_40_columns = ["High", "Low", "Open", "Volume", "Return"]
     technical_columns = ["MACD", "RSI", "SMA_5", "SMA_10", "SMA_20", "WMA_5", "WMA_10", "WMA_20", "Close_minus_Open", "High_minus_Low", "CCI", "Momentum", "Stochastic_K", "Stochastic_D", "Williams_R"]
     eco_columns = ["GDPV", "IRL", "IRS", "GDP", "CPIH_YTYPCT", "IRCB", "UNR", "YPH", "UNR_us", "IRCB_us", "CPI_us"]
 
@@ -341,10 +341,10 @@ def dataframe():
     selected_eco = st.multiselect("Economic Variables", eco_columns, default=eco_columns)
 
     # Combine selected variables
-    selected_columns = selected_cac_40 + selected_technical + selected_eco 
+    selected_columns = ["Close"] + selected_cac_40 + selected_technical + selected_eco
 
     # Filter the data
-    st.dataframe(data[selected_columns], hide_index=False)
+    st.dataframe(data[selected_columns].dropna(subset=['Close']), hide_index=False)
 
 
 
